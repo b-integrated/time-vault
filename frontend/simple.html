@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TimeVault - Simple Test</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React and ReactDOM from CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  
+  <!-- Simple App Script -->
+  <script type="text/babel">
+    // Simple App component
+    function SimpleApp() {
+      const [isAuthenticated, setIsAuthenticated] = React.useState(false);
+      const [isLoading, setIsLoading] = React.useState(false);
+      
+      // Handle login
+      const handleLogin = () => {
+        setIsLoading(true);
+        // Simulate API call
+        setTimeout(() => {
+          setIsAuthenticated(true);
+          setIsLoading(false);
+        }, 1000);
+      };
+      
+      // Handle logout
+      const handleLogout = () => {
+        setIsAuthenticated(false);
+      };
+      
+      // Render loading state
+      if (isLoading) {
+        return (
+          <div className="loading-container">
+            <div className="spinner-border" role="status">
+              <span className="visually-hidden">Loading...</span>
+            </div>
+            <p>Loading...</p>
+          </div>
+        );
+      }
+      
+      // Render login page if not authenticated
+      if (!isAuthenticated) {
+        return (
+          <div className="container mt-5">
+            <div className="row justify-content-center">
+              <div className="col-md-6">
+                <div className="card">
+                  <div className="card-header">
+                    <h1 className="text-center">TimeVault</h1>
+                    <h2 className="text-center">Sign In</h2>
+                  </div>
+                  <div className="card-body">
+                    <form onSubmit={(e) => { e.preventDefault(); handleLogin(); }}>
+                      <div className="mb-3">
+                        <label htmlFor="email" className="form-label">Email</label>
+                        <input type="email" className="form-control" id="email" />
+                      </div>
+                      <div className="mb-3">
+                        <label htmlFor="password" className="form-label">Password</label>
+                        <input type="password" className="form-control" id="password" />
+                      </div>
+                      <div className="d-grid">
+                        <button type="submit" className="btn btn-primary">Login</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      
+      // Render main application
+      return (
+        <div>
+          <header className="bg-dark text-white p-3">
+            <div className="container">
+              <div className="d-flex justify-content-between align-items-center">
+                <h1>TimeVault Dashboard</h1>
+                <button className="btn btn-outline-light" onClick={handleLogout}>Logout</button>
+              </div>
+            </div>
+          </header>
+          
+          <main className="container mt-4">
+            <div className="row">
+              <div className="col-md-12">
+                <div className="card">
+                  <div className="card-header">
+                    <h2>Welcome to TimeVault</h2>
+                  </div>
+                  <div className="card-body">
+                    <p>This is a simplified version of the TimeVault application.</p>
+                    <p>If you can see this, the basic React setup is working correctly.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+          
+          <footer className="bg-light p-3 mt-4">
+            <div className="container">
+              <p className="text-center">© 2025 TimeVault. All rights reserved.</p>
+            </div>
+          </footer>
+        </div>
+      );
+    }
+    
+    // Log for debugging
+    console.log('Simple App script loaded');
+    console.log('React:', React);
+    console.log('ReactDOM:', ReactDOM);
+    
+    // Render the Simple App
+    const rootElement = document.getElementById('root');
+    console.log('Root element:', rootElement);
+    
+    try {
+      const root = ReactDOM.createRoot(rootElement);
+      console.log('React root created');
+      
+      root.render(<SimpleApp />);
+      console.log('SimpleApp rendered');
+    } catch (error) {
+      console.error('Error rendering SimpleApp:', error);
+    }
+  </script>
+</body>
+</html>

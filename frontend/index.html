@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TimeVault - Time Tracking & Invoicing</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="icon" href="images/favicon.ico">
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React and ReactDOM from CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  
+  <!-- Custom Scripts -->
+  <script type="text/babel" src="js/components/FirstTimeSetup.js"></script>
+  <script type="text/babel" src="js/components/Auth.js"></script>
+  <script type="text/babel" src="js/components/Dashboard.js"></script>
+  <script type="text/babel" src="js/components/TimeTracker.js"></script>
+  <script type="text/babel" src="js/components/Projects.js"></script>
+  <script type="text/babel" src="js/components/Clients.js"></script>
+  <script type="text/babel" src="js/components/Invoices.js"></script>
+  <script type="text/babel" src="js/components/Reports.js"></script>
+  <script type="text/babel" src="js/components/Settings.js"></script>
+  <script type="text/babel" src="js/App.js"></script>
+  
+  <!-- Main entry point -->
+  <script type="text/babel">
+    // Main entry point for the TimeVault React application
+    console.log('index.js loaded');
+    console.log('React:', React);
+    console.log('ReactDOM:', ReactDOM);
+
+    try {
+      // Get the root element
+      const rootElement = document.getElementById('root');
+      console.log('Root element:', rootElement);
+      
+      if (rootElement) {
+        // Create a React root and render the App component
+        const root = ReactDOM.createRoot(rootElement);
+        console.log('React root created');
+        
+        root.render(React.createElement(App));
+        console.log('App rendered');
+      } else {
+        console.error('Root element not found');
+      }
+    } catch (error) {
+      console.error('Error rendering App:', error);
+    }
+  </script>
+</body>
+</html>

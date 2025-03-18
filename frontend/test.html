@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>React Test</title>
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- React and ReactDOM from CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+  
+  <!-- Test Script -->
+  <script type="text/babel">
+    // Simple test component
+    function TestComponent() {
+      return (
+        <div style={{ textAlign: 'center', marginTop: '50px' }}>
+          <h1>Hello, World!</h1>
+          <p>If you can see this, React is working correctly.</p>
+        </div>
+      );
+    }
+    
+    // Log for debugging
+    console.log('Test script loaded');
+    console.log('React:', React);
+    console.log('ReactDOM:', ReactDOM);
+    
+    // Render the test component
+    const rootElement = document.getElementById('root');
+    console.log('Root element:', rootElement);
+    
+    try {
+      const root = ReactDOM.createRoot(rootElement);
+      console.log('React root created');
+      
+      root.render(<TestComponent />);
+      console.log('TestComponent rendered');
+    } catch (error) {
+      console.error('Error rendering TestComponent:', error);
+    }
+  </script>
+</body>
+</html>

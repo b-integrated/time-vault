@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TimeVault</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>TimeVault</h1>
+      <div id="user-info">
+        <span id="user-name">Not logged in</span>
+        <button id="login-button">Login</button>
+        <button id="logout-button" style="display: none;">Logout</button>
+      </div>
+    </header>
+
+    <div id="login-form" style="display: none;">
+      <h2>Login</h2>
+      <form id="auth-form">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" required>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" required>
+        </div>
+        <div class="form-group">
+          <button type="submit">Login</button>
+        </div>
+        <div class="form-group">
+          <a href="#" id="register-link">Register</a>
+        </div>
+      </form>
+    </div>
+
+    <div id="verify-form" style="display: none;">
+      <h2>Verify 2FA</h2>
+      <p>Please enter the verification code sent to your email.</p>
+      <form id="verify-2fa-form">
+        <div class="form-group">
+          <label for="code">Verification Code</label>
+          <input type="text" id="code" required>
+        </div>
+        <div class="form-group">
+          <button type="submit">Verify</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="time-tracker" style="display: none;">
+      <div class="tracker-header">
+        <h2>Time Tracker</h2>
+        <div class="timer" id="timer">00:00:00</div>
+      </div>
+
+      <form id="time-entry-form">
+        <div class="form-group">
+          <label for="project">Project</label>
+          <select id="project" required>
+            <option value="">Select a project</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="description">Description</label>
+          <textarea id="description" rows="2" placeholder="What are you working on?"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="billable">
+            <input type="checkbox" id="billable" checked>
+            Billable
+          </label>
+        </div>
+        <div class="form-group buttons">
+          <button type="button" id="start-button">Start</button>
+          <button type="button" id="stop-button" disabled>Stop</button>
+        </div>
+      </form>
+
+      <div class="recent-entries">
+        <h3>Recent Entries</h3>
+        <ul id="recent-entries-list">
+          <!-- Recent entries will be added here dynamically -->
+        </ul>
+      </div>
+    </div>
+
+    <footer>
+      <a href="#" id="open-dashboard">Open Dashboard</a>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
