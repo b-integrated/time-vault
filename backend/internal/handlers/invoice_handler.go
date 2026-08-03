@@ -326,8 +326,8 @@ func writeInvoiceQBOCSV(writer *csv.Writer, invoice models.Invoice) error {
 
 	for index, line := range invoice.Lines {
 		row := make([]string, len(header))
+		row[0] = invoice.Number
 		if index == 0 {
-			row[0] = invoice.Number
 			row[1] = customer
 			row[2] = invoiceDate
 			row[3] = dueDate
@@ -354,15 +354,8 @@ func normalizeQBOText(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
-func qboItemName(line models.InvoiceLine) string {
-	item := strings.TrimSpace(line.ProjectName)
-	if item == "" && line.Project != nil {
-		item = strings.TrimSpace(line.Project.Name)
-	}
-	if item == "" {
-		item = "Services"
-	}
-	return item
+func qboItemName(_ models.InvoiceLine) string {
+	return "Services"
 }
 
 func qboTerms(issueDate time.Time, dueDate time.Time) string {
