@@ -17,6 +17,13 @@ function Projects({ user }) {
     rate: '',
     status: 'active'
   });
+
+  // State for project task management
+  const [tasks, setTasks] = React.useState([]);
+  const [expandedProjectId, setExpandedProjectId] = React.useState(null);
+  const [taskForms, setTaskForms] = React.useState({});
+  const [editingTaskIds, setEditingTaskIds] = React.useState({});
+  const [taskError, setTaskError] = React.useState('');
   
   // State for filtering and sorting
   const [filterStatus, setFilterStatus] = React.useState('all');
@@ -63,6 +70,20 @@ function Projects({ user }) {
     })
     .then(data => {
       setProjects(data);
+      return fetch(`${API_URL}/tasks`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Failed to fetch tasks');
+      }
+      return response.json();
+    })
+    .then(data => {
+      setTasks(data);
       setIsLoading(false);
     })
     .catch(error => {
@@ -78,6 +99,156 @@ function Projects({ user }) {
     setFormData({
       ...formData,
       [name]: value
+    });
+  };
+
+  const defaultTaskForm = (project) => ({
+    name: '',
+    description: '',
+    billable: true,
+    rate: project && project.rate ? project.rate.toString() : '',
+    status: 'active'
+  });
+
+  const getProjectTasks = (projectId) => {
+    return tasks
+      .filter(task => task.projectId === projectId)
+      .sort((a, b) => {
+        if (a.status !== b.status) {
+          return a.status === 'active' ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+  };
+
+  const openTaskManager = (project) => {
+    setExpandedProjectId(expandedProjectId === project.id ? null : project.id);
+    setTaskForms({
+      ...taskForms,
+      [project.id]: taskForms[project.id] || defaultTaskForm(project)
+    });
+    setTaskError('');
+  };
+
+  const handleTaskFormChange = (projectId, field, value) => {
+    setTaskForms({
+      ...taskForms,
+      [projectId]: {
+        ...(taskForms[projectId] || {}),
+        [field]: value
+      }
+    });
+  };
+
+  const resetTaskForm = (project) => {
+    setTaskForms({
+      ...taskForms,
+      [project.id]: defaultTaskForm(project)
+    });
+    setEditingTaskIds({
+      ...editingTaskIds,
+      [project.id]: null
+    });
+    setTaskError('');
+  };
+
+  const handleEditTask = (project, task) => {
+    setExpandedProjectId(project.id);
+    setEditingTaskIds({
+      ...editingTaskIds,
+      [project.id]: task.id
+    });
+    setTaskForms({
+      ...taskForms,
+      [project.id]: {
+        name: task.name || '',
+        description: task.description || '',
+        billable: task.billable !== false,
+        rate: task.rate !== undefined && task.rate !== null ? task.rate.toString() : '',
+        status: task.status || 'active'
+      }
+    });
+    setTaskError('');
+  };
+
+  const handleTaskSubmit = (e, project) => {
+    e.preventDefault();
+    const form = taskForms[project.id] || defaultTaskForm(project);
+    const editingTaskId = editingTaskIds[project.id];
+
+    if (!form.name.trim()) {
+      setTaskError('Task name is required');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const payload = {
+      projectId: project.id,
+      name: form.name.trim(),
+      description: form.description || '',
+      billable: form.billable !== false,
+      rate: parseFloat(form.rate) || 0,
+      status: form.status || 'active'
+    };
+    const url = editingTaskId ? `${API_URL}/tasks/${editingTaskId}` : `${API_URL}/tasks`;
+    const method = editingTaskId ? 'PUT' : 'POST';
+
+    fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`Failed to ${editingTaskId ? 'update' : 'create'} task`);
+      }
+      return response.json();
+    })
+    .then(task => {
+      if (editingTaskId) {
+        setTasks(tasks.map(existingTask => existingTask.id === task.id ? task : existingTask));
+      } else {
+        setTasks([...tasks, task]);
+      }
+      resetTaskForm(project);
+    })
+    .catch(error => {
+      console.error('Error saving task:', error);
+      setTaskError(`Failed to ${editingTaskId ? 'update' : 'create'} task`);
+    });
+  };
+
+  const handleDeleteTask = (project, task) => {
+    if (!confirm(`Delete task "${task.name}"? Existing time entries will keep their history, but this task will no longer be selectable.`)) {
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    fetch(`${API_URL}/tasks/${task.id}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Failed to delete task');
+      }
+      setTasks(tasks.filter(existingTask => existingTask.id !== task.id));
+      if (editingTaskIds[project.id] === task.id) {
+        resetTaskForm(project);
+      }
+    })
+    .catch(error => {
+      console.error('Error deleting task:', error);
+      setTaskError('Failed to delete task');
     });
   };
   
@@ -256,6 +427,144 @@ function Projects({ user }) {
       style: 'currency',
       currency: 'USD'
     }).format(amount);
+  };
+
+  const renderTaskManager = (project) => {
+    const projectTasks = getProjectTasks(project.id);
+    const form = taskForms[project.id] || defaultTaskForm(project);
+    const editingTaskId = editingTaskIds[project.id];
+
+    return React.createElement('div', { className: 'project-task-manager' },
+      taskError && React.createElement('div', { className: 'alert alert-danger' }, taskError),
+      React.createElement('div', { className: 'task-manager-grid' },
+        React.createElement('div', { className: 'task-list-panel' },
+          React.createElement('h3', null, 'Tasks'),
+          projectTasks.length === 0
+            ? React.createElement('p', { className: 'text-muted' }, 'No tasks for this project yet')
+            : React.createElement('table', { className: 'table task-table' },
+                React.createElement('thead', null,
+                  React.createElement('tr', null,
+                    React.createElement('th', null, 'Task'),
+                    React.createElement('th', null, 'Billing'),
+                    React.createElement('th', null, 'Rate'),
+                    React.createElement('th', null, 'Status'),
+                    React.createElement('th', null, 'Actions')
+                  )
+                ),
+                React.createElement('tbody', null,
+                  projectTasks.map(task =>
+                    React.createElement('tr', { key: task.id },
+                      React.createElement('td', null,
+                        React.createElement('strong', null, task.name),
+                        task.description && React.createElement('div', { className: 'task-description' }, task.description)
+                      ),
+                      React.createElement('td', null, task.billable ? 'Billable' : 'Non-billable'),
+                      React.createElement('td', null, formatCurrency(task.rate || 0)),
+                      React.createElement('td', null,
+                        React.createElement('span', {
+                          className: `badge ${task.status === 'active' ? 'bg-success' : 'bg-secondary'}`
+                        }, task.status || 'active')
+                      ),
+                      React.createElement('td', null,
+                        React.createElement('button', {
+                          type: 'button',
+                          className: 'btn btn-sm btn-primary mr-1',
+                          onClick: () => handleEditTask(project, task)
+                        }, 'Edit'),
+                        React.createElement('button', {
+                          type: 'button',
+                          className: 'btn btn-sm btn-danger',
+                          onClick: () => handleDeleteTask(project, task)
+                        }, 'Delete')
+                      )
+                    )
+                  )
+                )
+              )
+        ),
+        React.createElement('div', { className: 'task-form-panel' },
+          React.createElement('h3', null, editingTaskId ? 'Edit Task' : 'Add Task'),
+          React.createElement('form', { onSubmit: (e) => handleTaskSubmit(e, project) },
+            React.createElement('div', { className: 'form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: `task-name-${project.id}` }, 'Task Name'),
+              React.createElement('input', {
+                id: `task-name-${project.id}`,
+                type: 'text',
+                className: 'form-control',
+                value: form.name,
+                onChange: (e) => handleTaskFormChange(project.id, 'name', e.target.value),
+                required: true
+              })
+            ),
+            React.createElement('div', { className: 'form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: `task-description-${project.id}` }, 'Description'),
+              React.createElement('textarea', {
+                id: `task-description-${project.id}`,
+                className: 'form-control',
+                rows: 2,
+                value: form.description,
+                onChange: (e) => handleTaskFormChange(project.id, 'description', e.target.value)
+              })
+            ),
+            React.createElement('div', { className: 'row' },
+              React.createElement('div', { className: 'col-md-4' },
+                React.createElement('div', { className: 'form-group' },
+                  React.createElement('label', { className: 'form-label', htmlFor: `task-billable-${project.id}` }, 'Billing'),
+                  React.createElement('select', {
+                    id: `task-billable-${project.id}`,
+                    className: 'form-control',
+                    value: form.billable ? 'true' : 'false',
+                    onChange: (e) => handleTaskFormChange(project.id, 'billable', e.target.value === 'true')
+                  },
+                    React.createElement('option', { value: 'true' }, 'Billable'),
+                    React.createElement('option', { value: 'false' }, 'Non-billable')
+                  )
+                )
+              ),
+              React.createElement('div', { className: 'col-md-4' },
+                React.createElement('div', { className: 'form-group' },
+                  React.createElement('label', { className: 'form-label', htmlFor: `task-rate-${project.id}` }, 'Hourly Rate ($)'),
+                  React.createElement('input', {
+                    id: `task-rate-${project.id}`,
+                    type: 'number',
+                    className: 'form-control',
+                    min: 0,
+                    step: 0.01,
+                    value: form.rate,
+                    onChange: (e) => handleTaskFormChange(project.id, 'rate', e.target.value)
+                  })
+                )
+              ),
+              React.createElement('div', { className: 'col-md-4' },
+                React.createElement('div', { className: 'form-group' },
+                  React.createElement('label', { className: 'form-label', htmlFor: `task-status-${project.id}` }, 'Status'),
+                  React.createElement('select', {
+                    id: `task-status-${project.id}`,
+                    className: 'form-control',
+                    value: form.status,
+                    onChange: (e) => handleTaskFormChange(project.id, 'status', e.target.value)
+                  },
+                    React.createElement('option', { value: 'active' }, 'Active'),
+                    React.createElement('option', { value: 'archived' }, 'Archived')
+                  )
+                )
+              )
+            ),
+            React.createElement('div', { className: 'form-group' },
+              React.createElement('button', {
+                type: 'submit',
+                className: 'btn btn-primary mr-2'
+              }, editingTaskId ? 'Update Task' : 'Add Task'),
+              editingTaskId && React.createElement('button', {
+                type: 'button',
+                className: 'btn btn-secondary',
+                onClick: () => resetTaskForm(project)
+              }, 'Cancel')
+            )
+          )
+        )
+      )
+    );
   };
   
   // Render loading state
@@ -457,6 +766,7 @@ function Projects({ user }) {
                 React.createElement('tr', null,
                   React.createElement('th', null, 'Name'),
                   React.createElement('th', null, 'Client'),
+                  React.createElement('th', null, 'Tasks'),
                   React.createElement('th', null, 'Rate'),
                   React.createElement('th', null, 'Status'),
                   React.createElement('th', null, 'Actions')
@@ -464,24 +774,34 @@ function Projects({ user }) {
               ),
               React.createElement('tbody', null,
                 filteredProjects.map(project => 
-                  React.createElement('tr', { key: project.id },
-                    React.createElement('td', null, project.name),
-                    React.createElement('td', null, getClientName(project.clientId)),
-                    React.createElement('td', null, formatCurrency(project.rate)),
-                    React.createElement('td', null, 
-                      React.createElement('span', { 
-                        className: `badge ${project.status === 'active' ? 'bg-success' : 'bg-secondary'}`
-                      }, project.status)
+                  React.createElement(React.Fragment, { key: project.id },
+                    React.createElement('tr', null,
+                      React.createElement('td', null, project.name),
+                      React.createElement('td', null, getClientName(project.clientId)),
+                      React.createElement('td', null, getProjectTasks(project.id).length),
+                      React.createElement('td', null, formatCurrency(project.rate)),
+                      React.createElement('td', null, 
+                        React.createElement('span', { 
+                          className: `badge ${project.status === 'active' ? 'bg-success' : 'bg-secondary'}`
+                        }, project.status)
+                      ),
+                      React.createElement('td', null,
+                        React.createElement('button', {
+                          className: 'btn btn-sm btn-secondary mr-1',
+                          onClick: () => openTaskManager(project)
+                        }, expandedProjectId === project.id ? 'Hide Tasks' : 'Manage Tasks'),
+                        React.createElement('button', {
+                          className: 'btn btn-sm btn-primary mr-1',
+                          onClick: () => handleEdit(project)
+                        }, 'Edit'),
+                        React.createElement('button', {
+                          className: 'btn btn-sm btn-danger',
+                          onClick: () => handleDelete(project.id)
+                        }, 'Delete')
+                      )
                     ),
-                    React.createElement('td', null,
-                      React.createElement('button', {
-                        className: 'btn btn-sm btn-primary mr-1',
-                        onClick: () => handleEdit(project)
-                      }, 'Edit'),
-                      React.createElement('button', {
-                        className: 'btn btn-sm btn-danger',
-                        onClick: () => handleDelete(project.id)
-                      }, 'Delete')
+                    expandedProjectId === project.id && React.createElement('tr', { className: 'project-task-row' },
+                      React.createElement('td', { colSpan: 6 }, renderTaskManager(project))
                     )
                   )
                 )

@@ -86,13 +86,20 @@ func CreateTask(w http.ResponseWriter, r *http.Request) {
 		Rate:        req.Rate,
 		Status:      defaultInvoiceString(req.Status, "active"),
 	}
-	if task.Rate == 0 {
+	if task.Rate == 0 && task.Billable {
 		task.Rate = project.Rate
 	}
 
-	if err := database.DB.Create(&task).Error; err != nil {
+	if err := database.DB.Select("ProjectID", "Name", "Description", "Billable", "Rate", "Status").Create(&task).Error; err != nil {
 		http.Error(w, "Failed to create task", http.StatusInternalServerError)
 		return
+	}
+	if req.Billable != nil && !*req.Billable {
+		if err := database.DB.Model(&task).Update("billable", false).Error; err != nil {
+			http.Error(w, "Failed to save task billing setting", http.StatusInternalServerError)
+			return
+		}
+		task.Billable = false
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -135,9 +142,7 @@ func UpdateTask(w http.ResponseWriter, r *http.Request) {
 	if req.Billable != nil {
 		task.Billable = *req.Billable
 	}
-	if req.Rate != 0 {
-		task.Rate = req.Rate
-	}
+	task.Rate = req.Rate
 	if req.Status != "" {
 		task.Status = req.Status
 	}
