@@ -58,6 +58,7 @@ func Migrate() error {
 		&models.Project{},
 		&models.TimeEntry{},
 		&models.Invoice{},
+		&models.InvoiceLine{},
 		&models.UserSettings{},
 		&models.APIToken{},
 	)

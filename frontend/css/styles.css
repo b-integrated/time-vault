@@ -1136,3 +1136,41 @@ textarea.form-control {
     grid-template-columns: 1fr;
   }
 }
+/* Invoice line editor */
+.invoice-lines-table {
+  min-width: 980px;
+}
+
+.invoice-lines-table td {
+  vertical-align: top;
+}
+
+.invoice-lines-table textarea {
+  min-width: 18rem;
+  resize: vertical;
+}
+
+.invoice-line-number {
+  min-width: 6.5rem;
+}
+
+.invoice-line-adders {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.manual-line-grid {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.8fr) minmax(10rem, 1fr) minmax(14rem, 2fr) minmax(6rem, 0.6fr) minmax(6rem, 0.6fr) minmax(7rem, 0.7fr) auto;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .manual-line-grid {
+    grid-template-columns: 1fr;
+  }
+}

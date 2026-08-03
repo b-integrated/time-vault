@@ -13,35 +13,51 @@ import (
 	"github.com/jung-kurt/gofpdf"
 	"github.com/timevault/backend/internal/database"
 	"github.com/timevault/backend/internal/models"
+	"gorm.io/gorm"
 )
 
 // InvoiceRequest represents the request body for invoice operations
 type InvoiceRequest struct {
-	ClientID      uint       `json:"clientId"`
-	Number        string     `json:"number"`
-	IssueDate     time.Time  `json:"issueDate"`
-	DueDate       time.Time  `json:"dueDate"`
-	Status        string     `json:"status"`
-	Amount        float64    `json:"amount"`
-	Tax           float64    `json:"tax"`
-	DueAmount     *float64   `json:"dueAmount"`
-	Notes         string     `json:"notes"`
-	Subject       string     `json:"subject"`
-	Currency      string     `json:"currency"`
-	BillerName    string     `json:"billerName"`
-	BillerAddress string     `json:"billerAddress"`
-	BillerEmail   string     `json:"billerEmail"`
-	BillerPhone   string     `json:"billerPhone"`
-	ClientName    string     `json:"clientName"`
-	ClientAddress string     `json:"clientAddress"`
-	ClientEmail   string     `json:"clientEmail"`
-	ClientPhone   string     `json:"clientPhone"`
-	HarvestID     string     `json:"harvestId"`
-	PaidDate      *time.Time `json:"paidDate"`
-	PaidAt        *time.Time `json:"paidAt"`
-	SentAt        *time.Time `json:"sentAt"`
-	ClosedAt      *time.Time `json:"closedAt"`
-	TimeEntryIDs  []uint     `json:"timeEntryIds"`
+	ClientID      uint                 `json:"clientId"`
+	Number        string               `json:"number"`
+	IssueDate     time.Time            `json:"issueDate"`
+	DueDate       time.Time            `json:"dueDate"`
+	Status        string               `json:"status"`
+	Amount        float64              `json:"amount"`
+	Tax           float64              `json:"tax"`
+	DueAmount     *float64             `json:"dueAmount"`
+	Notes         string               `json:"notes"`
+	Subject       string               `json:"subject"`
+	Currency      string               `json:"currency"`
+	BillerName    string               `json:"billerName"`
+	BillerAddress string               `json:"billerAddress"`
+	BillerEmail   string               `json:"billerEmail"`
+	BillerPhone   string               `json:"billerPhone"`
+	ClientName    string               `json:"clientName"`
+	ClientAddress string               `json:"clientAddress"`
+	ClientEmail   string               `json:"clientEmail"`
+	ClientPhone   string               `json:"clientPhone"`
+	HarvestID     string               `json:"harvestId"`
+	PaidDate      *time.Time           `json:"paidDate"`
+	PaidAt        *time.Time           `json:"paidAt"`
+	SentAt        *time.Time           `json:"sentAt"`
+	ClosedAt      *time.Time           `json:"closedAt"`
+	TimeEntryIDs  []uint               `json:"timeEntryIds"`
+	Lines         []InvoiceLineRequest `json:"lines"`
+}
+
+type InvoiceLineRequest struct {
+	ID                  uint       `json:"id"`
+	OriginalTimeEntryID *uint      `json:"originalTimeEntryId"`
+	ProjectID           *uint      `json:"projectId"`
+	ServiceDate         *time.Time `json:"serviceDate"`
+	ProjectName         string     `json:"projectName"`
+	Description         string     `json:"description"`
+	Hours               float64    `json:"hours"`
+	Rate                float64    `json:"rate"`
+	Amount              float64    `json:"amount"`
+	LineType            string     `json:"lineType"`
+	SortOrder           int        `json:"sortOrder"`
 }
 
 type GenerateInvoiceRequest struct {
@@ -87,7 +103,12 @@ func GetInvoice(w http.ResponseWriter, r *http.Request) {
 
 	// Find invoice
 	var invoice models.Invoice
-	if err := database.DB.Preload("Client").Preload("TimeEntries.Project").First(&invoice, id).Error; err != nil {
+	if err := ensureInvoiceLines(uint(id)); err != nil {
+		http.Error(w, "Failed to prepare invoice lines", http.StatusInternalServerError)
+		return
+	}
+
+	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, id).Error; err != nil {
 		http.Error(w, "Invoice not found", http.StatusNotFound)
 		return
 	}
@@ -105,14 +126,19 @@ func GetInvoiceTimeEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var timeEntries []models.TimeEntry
-	if err := database.DB.Preload("Project").Where("invoice_id = ?", id).Order("start_time asc").Find(&timeEntries).Error; err != nil {
+	if err := ensureInvoiceLines(uint(id)); err != nil {
+		http.Error(w, "Failed to prepare invoice lines", http.StatusInternalServerError)
+		return
+	}
+
+	var lines []models.InvoiceLine
+	if err := database.DB.Preload("OriginalTimeEntry.Project").Preload("Project").Where("invoice_id = ?", id).Order("sort_order asc, service_date asc, id asc").Find(&lines).Error; err != nil {
 		http.Error(w, "Failed to retrieve invoice time entries", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(timeEntries)
+	json.NewEncoder(w).Encode(lines)
 }
 
 // GenerateInvoice creates a draft invoice from uninvoiced billable entries for a client and date range.
@@ -198,7 +224,15 @@ func GenerateInvoice(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to attach time entries to invoice", http.StatusInternalServerError)
 		return
 	}
-	if err := tx.Preload("Client").Preload("TimeEntries.Project").First(&invoice, invoice.ID).Error; err != nil {
+	lines := makeInvoiceLinesFromTimeEntries(invoice.ID, entries)
+	if len(lines) > 0 {
+		if err := tx.Create(&lines).Error; err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to create invoice lines", http.StatusInternalServerError)
+			return
+		}
+	}
+	if err := tx.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, invoice.ID).Error; err != nil {
 		tx.Rollback()
 		http.Error(w, "Failed to reload invoice", http.StatusInternalServerError)
 		return
@@ -223,7 +257,12 @@ func DownloadInvoicePDF(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var invoice models.Invoice
-	if err := database.DB.Preload("Client").Preload("TimeEntries.Project").First(&invoice, id).Error; err != nil {
+	if err := ensureInvoiceLines(uint(id)); err != nil {
+		http.Error(w, "Failed to prepare invoice lines", http.StatusInternalServerError)
+		return
+	}
+
+	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, id).Error; err != nil {
 		http.Error(w, "Invoice not found", http.StatusNotFound)
 		return
 	}
@@ -299,15 +338,21 @@ func buildInvoicePDF(invoice models.Invoice) *gofpdf.Fpdf {
 	pdf.Ln(-1)
 
 	pdf.SetFont("Helvetica", "", 9)
-	for _, entry := range invoice.TimeEntries {
-		hours := float64(entry.Duration) / 3600
-		amount := roundCurrency(hours * entry.Project.Rate)
+	for _, line := range invoice.Lines {
+		serviceDate := ""
+		if line.ServiceDate != nil {
+			serviceDate = line.ServiceDate.Format("Jan 2")
+		}
+		projectName := line.ProjectName
+		if projectName == "" && line.Project != nil {
+			projectName = line.Project.Name
+		}
 		row := []string{
-			entry.StartTime.Format("Jan 2"),
-			entry.Project.Name,
-			entry.Description,
-			fmt.Sprintf("%.2f", hours),
-			fmt.Sprintf("$%.2f", amount),
+			serviceDate,
+			projectName,
+			line.Description,
+			fmt.Sprintf("%.2f", line.Hours),
+			fmt.Sprintf("$%.2f", line.Amount),
 		}
 		for i, value := range row {
 			pdf.CellFormat(widths[i], 6, truncatePDFCell(value, widths[i]), "1", 0, "", false, 0, "")
@@ -352,6 +397,152 @@ func defaultInvoiceString(value string, fallback string) string {
 		return strings.TrimSpace(fallback)
 	}
 	return strings.TrimSpace(value)
+}
+
+func makeInvoiceLinesFromTimeEntries(invoiceID uint, entries []models.TimeEntry) []models.InvoiceLine {
+	lines := make([]models.InvoiceLine, 0, len(entries))
+	for index, entry := range entries {
+		entryID := entry.ID
+		projectID := entry.ProjectID
+		serviceDate := entry.StartTime
+		hours := roundHours(float64(entry.Duration) / 3600)
+		rate := entry.Project.Rate
+		amount := roundCurrency(hours * rate)
+		lines = append(lines, models.InvoiceLine{
+			InvoiceID:           invoiceID,
+			OriginalTimeEntryID: &entryID,
+			ProjectID:           &projectID,
+			ServiceDate:         &serviceDate,
+			ProjectName:         entry.Project.Name,
+			Description:         entry.Description,
+			Hours:               hours,
+			Rate:                rate,
+			Amount:              amount,
+			LineType:            "time",
+			SortOrder:           index,
+		})
+	}
+	return lines
+}
+
+func roundHours(value float64) float64 {
+	return math.Round(value*100) / 100
+}
+
+func ensureInvoiceLines(invoiceID uint) error {
+	var lineCount int64
+	if err := database.DB.Model(&models.InvoiceLine{}).Where("invoice_id = ?", invoiceID).Count(&lineCount).Error; err != nil {
+		return err
+	}
+	if lineCount > 0 {
+		return nil
+	}
+
+	var entries []models.TimeEntry
+	if err := database.DB.Preload("Project").Where("invoice_id = ?", invoiceID).Order("start_time asc").Find(&entries).Error; err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+
+	lines := makeInvoiceLinesFromTimeEntries(invoiceID, entries)
+	return database.DB.Create(&lines).Error
+}
+
+func invoiceLineFromRequest(invoiceID uint, req InvoiceLineRequest, sortOrder int) models.InvoiceLine {
+	lineType := defaultInvoiceString(req.LineType, "manual")
+	amount := req.Amount
+	if amount == 0 && req.Hours != 0 && req.Rate != 0 {
+		amount = roundCurrency(req.Hours * req.Rate)
+	}
+	if req.SortOrder != 0 {
+		sortOrder = req.SortOrder
+	}
+	return models.InvoiceLine{
+		ID:                  req.ID,
+		InvoiceID:           invoiceID,
+		OriginalTimeEntryID: req.OriginalTimeEntryID,
+		ProjectID:           req.ProjectID,
+		ServiceDate:         req.ServiceDate,
+		ProjectName:         req.ProjectName,
+		Description:         req.Description,
+		Hours:               roundHours(req.Hours),
+		Rate:                req.Rate,
+		Amount:              roundCurrency(amount),
+		LineType:            lineType,
+		SortOrder:           sortOrder,
+	}
+}
+
+func replaceInvoiceLines(tx *gorm.DB, invoiceID uint, lineReqs []InvoiceLineRequest) (float64, []uint, error) {
+	var existing []models.InvoiceLine
+	if err := tx.Where("invoice_id = ?", invoiceID).Find(&existing).Error; err != nil {
+		return 0, nil, err
+	}
+
+	var oldEntryIDs []uint
+	for _, line := range existing {
+		if line.OriginalTimeEntryID != nil {
+			oldEntryIDs = append(oldEntryIDs, *line.OriginalTimeEntryID)
+		}
+	}
+	if len(oldEntryIDs) > 0 {
+		if err := tx.Model(&models.TimeEntry{}).Where("id IN ?", oldEntryIDs).Update("invoice_id", nil).Error; err != nil {
+			return 0, nil, err
+		}
+	}
+
+	if err := tx.Where("invoice_id = ?", invoiceID).Delete(&models.InvoiceLine{}).Error; err != nil {
+		return 0, nil, err
+	}
+
+	lines := make([]models.InvoiceLine, 0, len(lineReqs))
+	var newEntryIDs []uint
+	var amount float64
+	for index, lineReq := range lineReqs {
+		line := invoiceLineFromRequest(invoiceID, lineReq, index)
+		line.ID = 0
+		if line.OriginalTimeEntryID != nil {
+			newEntryIDs = append(newEntryIDs, *line.OriginalTimeEntryID)
+			line.LineType = "time"
+			if line.ProjectName == "" || line.ProjectID == nil || line.ServiceDate == nil || line.Rate == 0 {
+				var entry models.TimeEntry
+				if err := tx.Preload("Project").First(&entry, *line.OriginalTimeEntryID).Error; err != nil {
+					return 0, nil, err
+				}
+				if line.ProjectID == nil {
+					projectID := entry.ProjectID
+					line.ProjectID = &projectID
+				}
+				if line.ServiceDate == nil {
+					serviceDate := entry.StartTime
+					line.ServiceDate = &serviceDate
+				}
+				if line.ProjectName == "" {
+					line.ProjectName = entry.Project.Name
+				}
+				if line.Rate == 0 {
+					line.Rate = entry.Project.Rate
+				}
+			}
+		}
+		line.Amount = roundCurrency(line.Amount)
+		amount += line.Amount
+		lines = append(lines, line)
+	}
+	if len(lines) > 0 {
+		if err := tx.Create(&lines).Error; err != nil {
+			return 0, nil, err
+		}
+	}
+	if len(newEntryIDs) > 0 {
+		if err := tx.Model(&models.TimeEntry{}).Where("id IN ?", newEntryIDs).Update("invoice_id", invoiceID).Error; err != nil {
+			return 0, nil, err
+		}
+	}
+
+	return roundCurrency(amount), newEntryIDs, nil
 }
 
 // GetClientInvoices handles retrieving all invoices for a client
@@ -444,8 +635,16 @@ func CreateInvoice(w http.ResponseWriter, r *http.Request) {
 		invoice.Currency = "USD"
 	}
 
+	if len(req.Lines) > 0 {
+		invoice.Amount = 0
+		for _, line := range req.Lines {
+			invoice.Amount += roundCurrency(line.Amount)
+		}
+		invoice.Amount = roundCurrency(invoice.Amount)
+	}
+
 	// Calculate total
-	invoice.Total = invoice.Amount + invoice.Tax
+	invoice.Total = roundCurrency(invoice.Amount + invoice.Tax)
 	invoice.DueAmount = invoice.Total
 	if req.DueAmount != nil {
 		invoice.DueAmount = *req.DueAmount
@@ -461,9 +660,39 @@ func CreateInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Associate time entries with invoice if provided
-	if len(req.TimeEntryIDs) > 0 {
-		// Update time entries with invoice ID
+	if len(req.Lines) > 0 {
+		amount, _, err := replaceInvoiceLines(tx, invoice.ID, req.Lines)
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to save invoice lines", http.StatusInternalServerError)
+			return
+		}
+		invoice.Amount = amount
+		invoice.Total = roundCurrency(invoice.Amount + invoice.Tax)
+		invoice.DueAmount = invoice.Total
+		if req.DueAmount != nil {
+			invoice.DueAmount = *req.DueAmount
+		}
+		if err := tx.Save(&invoice).Error; err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to update invoice totals", http.StatusInternalServerError)
+			return
+		}
+	} else if len(req.TimeEntryIDs) > 0 {
+		var entries []models.TimeEntry
+		if err := tx.Preload("Project").Where("id IN ?", req.TimeEntryIDs).Order("start_time asc").Find(&entries).Error; err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to retrieve invoice time entries", http.StatusInternalServerError)
+			return
+		}
+		lines := makeInvoiceLinesFromTimeEntries(invoice.ID, entries)
+		if len(lines) > 0 {
+			if err := tx.Create(&lines).Error; err != nil {
+				tx.Rollback()
+				http.Error(w, "Failed to create invoice lines", http.StatusInternalServerError)
+				return
+			}
+		}
 		if err := tx.Model(&models.TimeEntry{}).Where("id IN ?", req.TimeEntryIDs).Update("invoice_id", invoice.ID).Error; err != nil {
 			tx.Rollback()
 			http.Error(w, "Failed to associate time entries with invoice", http.StatusInternalServerError)
@@ -533,16 +762,9 @@ func UpdateInvoice(w http.ResponseWriter, r *http.Request) {
 	if req.Status != "" {
 		invoice.Status = req.Status
 	}
-	if req.Amount != 0 {
-		invoice.Amount = req.Amount
-		// Recalculate total
-		invoice.Total = invoice.Amount + invoice.Tax
-	}
-	if req.Tax != 0 {
-		invoice.Tax = req.Tax
-		// Recalculate total
-		invoice.Total = invoice.Amount + invoice.Tax
-	}
+	invoice.Amount = req.Amount
+	invoice.Tax = req.Tax
+	invoice.Total = roundCurrency(invoice.Amount + invoice.Tax)
 	if req.DueAmount != nil {
 		invoice.DueAmount = *req.DueAmount
 	}
@@ -579,6 +801,20 @@ func UpdateInvoice(w http.ResponseWriter, r *http.Request) {
 		invoice.ClosedAt = req.ClosedAt
 	}
 
+	if len(req.Lines) > 0 {
+		amount, _, err := replaceInvoiceLines(tx, invoice.ID, req.Lines)
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to save invoice lines", http.StatusInternalServerError)
+			return
+		}
+		invoice.Amount = amount
+		invoice.Total = roundCurrency(invoice.Amount + invoice.Tax)
+		if req.DueAmount == nil {
+			invoice.DueAmount = invoice.Total
+		}
+	}
+
 	// Save changes
 	if err := tx.Save(&invoice).Error; err != nil {
 		tx.Rollback()
@@ -586,8 +822,8 @@ func UpdateInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Associate time entries with invoice if provided
-	if len(req.TimeEntryIDs) > 0 {
+	// Associate time entries with invoice if provided by the legacy client path.
+	if len(req.Lines) == 0 && len(req.TimeEntryIDs) > 0 {
 		// Update time entries with invoice ID
 		if err := tx.Model(&models.TimeEntry{}).Where("id IN ?", req.TimeEntryIDs).Update("invoice_id", invoice.ID).Error; err != nil {
 			tx.Rollback()
@@ -603,6 +839,10 @@ func UpdateInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, invoice.ID).Error; err != nil {
+		http.Error(w, "Failed to reload invoice", http.StatusInternalServerError)
+		return
+	}
 	json.NewEncoder(w).Encode(invoice)
 }
 

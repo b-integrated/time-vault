@@ -66,6 +66,14 @@ function Invoices({ user }) {
   
   // State for time entry selection
   const [showTimeEntrySelector, setShowTimeEntrySelector] = React.useState(false);
+  const [manualLineDraft, setManualLineDraft] = React.useState({
+    serviceDate: formatDateForInput(new Date()),
+    projectName: '',
+    description: '',
+    hours: '0',
+    rate: '0',
+    amount: '0'
+  });
   
   // API URL
   const API_URL = '/api';
@@ -236,26 +244,119 @@ function Invoices({ user }) {
     });
   };
   
-  // Calculate invoice total
+  const roundMoney = (value) => Math.round((parseFloat(value || 0) + Number.EPSILON) * 100) / 100;
+
+  const lineClientKey = (line) => line.id ? `line-${line.id}` : line.clientKey;
+
+  const lineFromTimeEntry = (entry, index = 0) => {
+    const project = entry.project || {};
+    const hours = roundMoney((entry.duration || 0) / 3600);
+    const rate = parseFloat(project.rate || 0) || 0;
+    return {
+      clientKey: `time-${entry.id}-${Date.now()}`,
+      originalTimeEntryId: entry.originalTimeEntryId || entry.id,
+      projectId: entry.projectId || project.id || null,
+      serviceDate: formatDateForInput(entry.startTime || entry.serviceDate || new Date()),
+      projectName: entry.projectName || project.name || '',
+      description: entry.description || '',
+      hours: hours.toString(),
+      rate: rate.toString(),
+      amount: roundMoney(hours * rate).toString(),
+      lineType: 'time',
+      sortOrder: index
+    };
+  };
+
+  const normalizeInvoiceLine = (line, index = 0) => {
+    const originalEntry = line.originalTimeEntry || {};
+    const project = line.project || originalEntry.project || {};
+    return {
+      id: line.id,
+      clientKey: line.clientKey || `line-${line.id || index}-${Date.now()}`,
+      originalTimeEntryId: line.originalTimeEntryId || null,
+      projectId: line.projectId || project.id || null,
+      serviceDate: line.serviceDate ? formatDateForInput(line.serviceDate) : (originalEntry.startTime ? formatDateForInput(originalEntry.startTime) : ''),
+      projectName: line.projectName || project.name || '',
+      description: line.description || '',
+      hours: line.hours != null ? line.hours.toString() : '0',
+      rate: line.rate != null ? line.rate.toString() : '0',
+      amount: line.amount != null ? line.amount.toString() : '0',
+      lineType: line.lineType || (line.originalTimeEntryId ? 'time' : 'manual'),
+      sortOrder: line.sortOrder || index
+    };
+  };
+
   const calculateInvoiceTotal = () => {
+    if (isEditing) {
+      return invoiceTimeEntries.reduce((total, line) => total + roundMoney(line.amount), 0);
+    }
+
     let total = 0;
-    const availableEntries = isEditing ? invoiceTimeEntries : timeEntries;
-    
-    // Add up the cost of selected time entries
     formData.selectedTimeEntries.forEach(entryId => {
-      const entry = availableEntries.find(e => e.id === entryId);
-      if (entry) {
-        // Find the project to get the rate
-        const project = entry.project;
-        if (project && project.rate) {
-          // Calculate cost based on duration and rate
-          const hours = entry.duration / 3600; // Convert seconds to hours
-          total += hours * project.rate;
-        }
+      const entry = timeEntries.find(e => e.id === entryId);
+      if (entry && entry.project && entry.project.rate) {
+        total += (entry.duration / 3600) * entry.project.rate;
       }
     });
-    
-    return total;
+    return roundMoney(total);
+  };
+
+  const handleInvoiceLineChange = (lineKey, field, value) => {
+    setInvoiceTimeEntries(lines => lines.map(line => {
+      if (lineClientKey(line) !== lineKey) return line;
+
+      const nextLine = { ...line, [field]: value };
+      if (field === 'hours' || field === 'rate') {
+        nextLine.amount = roundMoney((parseFloat(nextLine.hours || '0') || 0) * (parseFloat(nextLine.rate || '0') || 0)).toString();
+      }
+      return nextLine;
+    }));
+  };
+
+  const handleDeleteInvoiceLine = (lineKey) => {
+    setInvoiceTimeEntries(lines => lines.filter(line => lineClientKey(line) !== lineKey));
+  };
+
+  const handleAddTimeEntryLine = (entryId) => {
+    const entry = timeEntries.find(item => item.id === parseInt(entryId));
+    if (!entry) return;
+    const alreadyAdded = invoiceTimeEntries.some(line => line.originalTimeEntryId === entry.id);
+    if (alreadyAdded) return;
+
+    setInvoiceTimeEntries(lines => [...lines, lineFromTimeEntry(entry, lines.length)]);
+    setTimeEntries(entries => entries.filter(item => item.id !== entry.id));
+  };
+
+  const handleManualLineDraftChange = (field, value) => {
+    const nextDraft = { ...manualLineDraft, [field]: value };
+    if (field === 'hours' || field === 'rate') {
+      nextDraft.amount = roundMoney((parseFloat(nextDraft.hours || '0') || 0) * (parseFloat(nextDraft.rate || '0') || 0)).toString();
+    }
+    setManualLineDraft(nextDraft);
+  };
+
+  const handleAddManualLine = () => {
+    if (!manualLineDraft.description && !manualLineDraft.projectName) {
+      setError('Manual invoice line needs a project/name or description');
+      return;
+    }
+    setInvoiceTimeEntries(lines => [...lines, {
+      ...manualLineDraft,
+      clientKey: `manual-${Date.now()}`,
+      originalTimeEntryId: null,
+      projectId: null,
+      lineType: 'manual',
+      sortOrder: lines.length
+    }]);
+    setManualLineDraft({
+      serviceDate: formatDateForInput(new Date()),
+      projectName: '',
+      description: '',
+      hours: '0',
+      rate: '0',
+      amount: '0'
+    });
+    setError('');
   };
   
   // Handle form submission
@@ -276,9 +377,22 @@ function Invoices({ user }) {
     const selectedTotal = calculateInvoiceTotal();
     const manualAmount = parseFloat(formData.amount || '0') || 0;
     const tax = parseFloat(formData.tax || '0') || 0;
-    const amount = formData.selectedTimeEntries.length > 0 ? selectedTotal : manualAmount;
-    const total = amount + tax;
+    const amount = (isEditing || formData.selectedTimeEntries.length > 0) ? selectedTotal : manualAmount;
+    const total = roundMoney(amount + tax);
     const dueAmount = formData.dueAmount === '' ? total : parseFloat(formData.dueAmount || '0') || 0;
+    const invoiceLines = isEditing ? invoiceTimeEntries.map((line, index) => ({
+      id: line.id || 0,
+      originalTimeEntryId: line.originalTimeEntryId || null,
+      projectId: line.projectId || null,
+      serviceDate: line.serviceDate ? toAPIDate(line.serviceDate) : null,
+      projectName: line.projectName || '',
+      description: line.description || '',
+      hours: parseFloat(line.hours || '0') || 0,
+      rate: parseFloat(line.rate || '0') || 0,
+      amount: parseFloat(line.amount || '0') || 0,
+      lineType: line.lineType || (line.originalTimeEntryId ? 'time' : 'manual'),
+      sortOrder: index
+    })) : [];
     
     // Prepare invoice data
     const invoiceData = {
@@ -301,10 +415,8 @@ function Invoices({ user }) {
       clientEmail: formData.clientEmail,
       clientPhone: formData.clientPhone,
       notes: formData.notes,
-      amount: total,
-      tax: 0, // Could add tax calculation later
-      total: total,
-      timeEntryIds: formData.selectedTimeEntries
+      timeEntryIds: formData.selectedTimeEntries,
+      lines: invoiceLines
     };
     
     // Determine if creating or updating
@@ -454,7 +566,8 @@ function Invoices({ user }) {
     })
     .then(data => {
       const client = invoice.client || {};
-      setInvoiceTimeEntries(data);
+      const lines = data.map((line, index) => normalizeInvoiceLine(line, index));
+      setInvoiceTimeEntries(lines);
 
       // Set form data with invoice details and time entries
       setFormData({
@@ -478,11 +591,11 @@ function Invoices({ user }) {
         clientEmail: invoice.clientEmail || client.email || '',
         clientPhone: invoice.clientPhone || client.phone || '',
         notes: invoice.notes || '',
-        selectedTimeEntries: data.map(entry => entry.id)
+        selectedTimeEntries: lines.map(line => line.originalTimeEntryId).filter(Boolean)
       });
       
       setIsEditing(true);
-      setShowTimeEntrySelector(false);
+      setShowTimeEntrySelector(true);
       setError('');
       setTimeout(() => {
         if (invoiceFormRef.current) {
@@ -1101,16 +1214,173 @@ function Invoices({ user }) {
                 type: 'button',
                 className: 'btn btn-outline-primary mb-3',
                 onClick: () => setShowTimeEntrySelector(!showTimeEntrySelector)
-              }, showTimeEntrySelector ? 'Hide Time Entries' : 'Select Time Entries'),
+              }, showTimeEntrySelector ? 'Hide Time Entries' : (isEditing ? 'Show Time Entries' : 'Select Time Entries')),
               
               // Show selected time entries count
               React.createElement('p', null, 
-                `Selected entries: ${formData.selectedTimeEntries.length} (Total: ${formatCurrency(calculateInvoiceTotal())})`
+                `${isEditing ? 'Invoice lines' : 'Selected entries'}: ${isEditing ? invoiceTimeEntries.length : formData.selectedTimeEntries.length} (Total: ${formatCurrency(calculateInvoiceTotal())})`
               ),
               
               // Time entry selector
               showTimeEntrySelector && React.createElement('div', { className: 'time-entry-selector' },
-                (isEditing ? invoiceTimeEntries : timeEntries).length === 0
+                isEditing
+                  ? React.createElement('div', null,
+                      invoiceTimeEntries.length === 0
+                        ? React.createElement('p', null, 'No invoice lines yet')
+                        : React.createElement('table', { className: 'table table-sm invoice-lines-table' },
+                            React.createElement('thead', null,
+                              React.createElement('tr', null,
+                                React.createElement('th', null, 'Date'),
+                                React.createElement('th', null, 'Project'),
+                                React.createElement('th', null, 'Description'),
+                                React.createElement('th', null, 'Hours'),
+                                React.createElement('th', null, 'Rate'),
+                                React.createElement('th', null, 'Total'),
+                                React.createElement('th', null, '')
+                              )
+                            ),
+                            React.createElement('tbody', null,
+                              invoiceTimeEntries.map((line) => {
+                                const lineKey = lineClientKey(line);
+                                return React.createElement('tr', { key: lineKey },
+                                  React.createElement('td', null,
+                                    React.createElement('input', {
+                                      type: 'date',
+                                      className: 'form-control form-control-sm',
+                                      value: line.serviceDate || '',
+                                      onChange: (e) => handleInvoiceLineChange(lineKey, 'serviceDate', e.target.value)
+                                    })
+                                  ),
+                                  React.createElement('td', null,
+                                    React.createElement('input', {
+                                      className: 'form-control form-control-sm',
+                                      value: line.projectName || '',
+                                      onChange: (e) => handleInvoiceLineChange(lineKey, 'projectName', e.target.value)
+                                    })
+                                  ),
+                                  React.createElement('td', null,
+                                    React.createElement('textarea', {
+                                      className: 'form-control form-control-sm',
+                                      value: line.description || '',
+                                      rows: 2,
+                                      onChange: (e) => handleInvoiceLineChange(lineKey, 'description', e.target.value)
+                                    })
+                                  ),
+                                  React.createElement('td', null,
+                                    React.createElement('input', {
+                                      type: 'number',
+                                      step: '0.01',
+                                      min: '0',
+                                      className: 'form-control form-control-sm invoice-line-number',
+                                      value: line.hours || '0',
+                                      onChange: (e) => handleInvoiceLineChange(lineKey, 'hours', e.target.value)
+                                    })
+                                  ),
+                                  React.createElement('td', null,
+                                    React.createElement('input', {
+                                      type: 'number',
+                                      step: '0.01',
+                                      min: '0',
+                                      className: 'form-control form-control-sm invoice-line-number',
+                                      value: line.rate || '0',
+                                      onChange: (e) => handleInvoiceLineChange(lineKey, 'rate', e.target.value)
+                                    })
+                                  ),
+                                  React.createElement('td', null,
+                                    React.createElement('input', {
+                                      type: 'number',
+                                      step: '0.01',
+                                      min: '0',
+                                      className: 'form-control form-control-sm invoice-line-number',
+                                      value: line.amount || '0',
+                                      onChange: (e) => handleInvoiceLineChange(lineKey, 'amount', e.target.value)
+                                    })
+                                  ),
+                                  React.createElement('td', null,
+                                    React.createElement('button', {
+                                      type: 'button',
+                                      className: 'btn btn-sm btn-danger',
+                                      onClick: () => handleDeleteInvoiceLine(lineKey)
+                                    }, 'Delete')
+                                  )
+                                );
+                              })
+                            )
+                          ),
+                      React.createElement('div', { className: 'invoice-line-adders' },
+                        React.createElement('div', { className: 'form-group' },
+                          React.createElement('label', { className: 'form-label', htmlFor: 'addTimeEntryLine' }, 'Add Unbilled Time Entry'),
+                          React.createElement('select', {
+                            id: 'addTimeEntryLine',
+                            className: 'form-control',
+                            value: '',
+                            onChange: (e) => handleAddTimeEntryLine(e.target.value)
+                          },
+                            React.createElement('option', { value: '' }, 'Select an entry to add'),
+                            timeEntries.map(entry => {
+                              const project = entry.project || {};
+                              const hours = roundMoney((entry.duration || 0) / 3600);
+                              return React.createElement('option', { key: entry.id, value: entry.id },
+                                `${formatDateForDisplay(entry.startTime)} - ${project.name || 'Unknown'} - ${hours}h - ${entry.description || ''}`
+                              );
+                            })
+                          )
+                        ),
+                        React.createElement('div', { className: 'manual-line-grid' },
+                          React.createElement('input', {
+                            type: 'date',
+                            className: 'form-control',
+                            value: manualLineDraft.serviceDate,
+                            onChange: (e) => handleManualLineDraftChange('serviceDate', e.target.value)
+                          }),
+                          React.createElement('input', {
+                            className: 'form-control',
+                            placeholder: 'Project / item',
+                            value: manualLineDraft.projectName,
+                            onChange: (e) => handleManualLineDraftChange('projectName', e.target.value)
+                          }),
+                          React.createElement('input', {
+                            className: 'form-control',
+                            placeholder: 'Description',
+                            value: manualLineDraft.description,
+                            onChange: (e) => handleManualLineDraftChange('description', e.target.value)
+                          }),
+                          React.createElement('input', {
+                            type: 'number',
+                            step: '0.01',
+                            min: '0',
+                            className: 'form-control',
+                            placeholder: 'Hours',
+                            value: manualLineDraft.hours,
+                            onChange: (e) => handleManualLineDraftChange('hours', e.target.value)
+                          }),
+                          React.createElement('input', {
+                            type: 'number',
+                            step: '0.01',
+                            min: '0',
+                            className: 'form-control',
+                            placeholder: 'Rate',
+                            value: manualLineDraft.rate,
+                            onChange: (e) => handleManualLineDraftChange('rate', e.target.value)
+                          }),
+                          React.createElement('input', {
+                            type: 'number',
+                            step: '0.01',
+                            min: '0',
+                            className: 'form-control',
+                            placeholder: 'Total',
+                            value: manualLineDraft.amount,
+                            onChange: (e) => handleManualLineDraftChange('amount', e.target.value)
+                          }),
+                          React.createElement('button', {
+                            type: 'button',
+                            className: 'btn btn-outline-primary',
+                            onClick: handleAddManualLine
+                          }, 'Add Line')
+                        )
+                      )
+                    )
+                  : (timeEntries.length === 0
                   ? React.createElement('p', null, 'No unbilled time entries available')
                   : React.createElement('table', { className: 'table table-sm' },
                       React.createElement('thead', null,
@@ -1148,6 +1418,7 @@ function Invoices({ user }) {
                         })
                       )
                     )
+                  )
               )
             )
           ),

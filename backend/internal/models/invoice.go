@@ -39,6 +39,34 @@ type Invoice struct {
 	DeletedAt     gorm.DeletedAt `json:"-" gorm:"index"`
 
 	// Relationships
-	Client      Client      `json:"client,omitempty" gorm:"foreignKey:ClientID"`
-	TimeEntries []TimeEntry `json:"timeEntries,omitempty" gorm:"foreignKey:InvoiceID"`
+	Client      Client        `json:"client,omitempty" gorm:"foreignKey:ClientID"`
+	TimeEntries []TimeEntry   `json:"timeEntries,omitempty" gorm:"foreignKey:InvoiceID"`
+	Lines       []InvoiceLine `json:"lines,omitempty" gorm:"foreignKey:InvoiceID"`
+}
+
+// InvoiceLine is the invoice's billing snapshot for one line item.
+//
+// OriginalTimeEntryID links back to the real time record when the line came
+// from tracked time. Description, Hours, Rate, and Amount are intentionally
+// editable here without mutating the original TimeEntry.
+type InvoiceLine struct {
+	ID                  uint           `json:"id" gorm:"primaryKey"`
+	InvoiceID           uint           `json:"invoiceId" gorm:"not null;index"`
+	OriginalTimeEntryID *uint          `json:"originalTimeEntryId" gorm:"index"`
+	ProjectID           *uint          `json:"projectId" gorm:"index"`
+	ServiceDate         *time.Time     `json:"serviceDate"`
+	ProjectName         string         `json:"projectName"`
+	Description         string         `json:"description"`
+	Hours               float64        `json:"hours" gorm:"type:decimal(10,2);not null;default:0"`
+	Rate                float64        `json:"rate" gorm:"type:decimal(10,2);not null;default:0"`
+	Amount              float64        `json:"amount" gorm:"type:decimal(10,2);not null;default:0"`
+	LineType            string         `json:"lineType" gorm:"default:time"`
+	SortOrder           int            `json:"sortOrder" gorm:"default:0"`
+	CreatedAt           time.Time      `json:"createdAt"`
+	UpdatedAt           time.Time      `json:"updatedAt"`
+	DeletedAt           gorm.DeletedAt `json:"-" gorm:"index"`
+
+	Invoice           Invoice    `json:"-" gorm:"foreignKey:InvoiceID"`
+	OriginalTimeEntry *TimeEntry `json:"originalTimeEntry,omitempty" gorm:"foreignKey:OriginalTimeEntryID"`
+	Project           *Project   `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
 }
