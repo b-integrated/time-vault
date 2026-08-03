@@ -19,6 +19,6 @@ type Project struct {
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 
 	// Relationships
-	Client      Client       `json:"-" gorm:"foreignKey:ClientID"`
-	TimeEntries []TimeEntry  `json:"-" gorm:"foreignKey:ProjectID"`
+	Client      Client      `json:"client,omitempty" gorm:"foreignKey:ClientID"`
+	TimeEntries []TimeEntry `json:"-" gorm:"foreignKey:ProjectID"`
 }

@@ -19,13 +19,17 @@ type TimeEntryRequest struct {
 	StartTime   time.Time `json:"startTime"`
 	EndTime     time.Time `json:"endTime"`
 	Duration    int       `json:"duration"`
-	Billable    bool      `json:"billable"`
+	Billable    *bool     `json:"billable"`
 }
 
 // GetTimeEntries handles retrieving all time entries
 func GetTimeEntries(w http.ResponseWriter, r *http.Request) {
 	var timeEntries []models.TimeEntry
-	if err := database.DB.Find(&timeEntries).Error; err != nil {
+	query := database.DB.Preload("Project").Preload("Project.Client").Order("start_time desc")
+	if r.URL.Query().Get("billable") == "true" {
+		query = query.Where("billable = ?", true)
+	}
+	if err := query.Find(&timeEntries).Error; err != nil {
 		http.Error(w, "Failed to retrieve time entries", http.StatusInternalServerError)
 		return
 	}
@@ -46,7 +50,7 @@ func GetTimeEntry(w http.ResponseWriter, r *http.Request) {
 
 	// Find time entry
 	var timeEntry models.TimeEntry
-	if err := database.DB.First(&timeEntry, id).Error; err != nil {
+	if err := database.DB.Preload("Project").Preload("Project.Client").First(&timeEntry, id).Error; err != nil {
 		http.Error(w, "Time entry not found", http.StatusNotFound)
 		return
 	}
@@ -67,7 +71,7 @@ func GetUserTimeEntries(w http.ResponseWriter, r *http.Request) {
 
 	// Find time entries for user
 	var timeEntries []models.TimeEntry
-	if err := database.DB.Where("user_id = ?", userID).Find(&timeEntries).Error; err != nil {
+	if err := database.DB.Preload("Project").Preload("Project.Client").Where("user_id = ?", userID).Order("start_time desc").Find(&timeEntries).Error; err != nil {
 		http.Error(w, "Failed to retrieve time entries", http.StatusInternalServerError)
 		return
 	}
@@ -88,7 +92,7 @@ func GetProjectTimeEntries(w http.ResponseWriter, r *http.Request) {
 
 	// Find time entries for project
 	var timeEntries []models.TimeEntry
-	if err := database.DB.Where("project_id = ?", projectID).Find(&timeEntries).Error; err != nil {
+	if err := database.DB.Preload("Project").Preload("Project.Client").Where("project_id = ?", projectID).Order("start_time desc").Find(&timeEntries).Error; err != nil {
 		http.Error(w, "Failed to retrieve time entries", http.StatusInternalServerError)
 		return
 	}
@@ -141,7 +145,10 @@ func CreateTimeEntry(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		StartTime:   req.StartTime,
 		EndTime:     req.EndTime,
-		Billable:    req.Billable,
+		Billable:    true,
+	}
+	if req.Billable != nil {
+		timeEntry.Billable = *req.Billable
 	}
 
 	// If end time is provided, calculate duration
@@ -152,11 +159,6 @@ func CreateTimeEntry(w http.ResponseWriter, r *http.Request) {
 		// If duration is provided, calculate end time
 		timeEntry.Duration = req.Duration
 		timeEntry.EndTime = req.StartTime.Add(time.Duration(req.Duration) * time.Second)
-	}
-
-	// Set billable to true by default
-	if !req.Billable {
-		timeEntry.Billable = true
 	}
 
 	if err := database.DB.Create(&timeEntry).Error; err != nil {
@@ -237,7 +239,9 @@ func UpdateTimeEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update billable status
-	timeEntry.Billable = req.Billable
+	if req.Billable != nil {
+		timeEntry.Billable = *req.Billable
+	}
 
 	// Save changes
 	if err := database.DB.Save(&timeEntry).Error; err != nil {

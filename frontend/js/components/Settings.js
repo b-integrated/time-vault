@@ -31,7 +31,7 @@ function Settings({ user, onUserUpdate }) {
   const [success, setSuccess] = React.useState('');
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
   
   // Load user settings on component mount
   React.useEffect(() => {
@@ -580,6 +580,23 @@ function Settings({ user, onUserUpdate }) {
               disabled: isLoading
             }, isLoading ? 'Saving...' : 'Save Preferences')
           )
+        )
+      )
+    ),
+    
+    // Import tools section
+    React.createElement('div', { className: 'card mb-4' },
+      React.createElement('div', { className: 'card-header' },
+        React.createElement('h2', null, 'Import Tools')
+      ),
+      React.createElement('div', { className: 'card-body' },
+        React.createElement('p', null, 'Import legacy Harvest time CSVs when you need to migrate or resync older data.'),
+        React.createElement('button', {
+          className: 'btn btn-secondary',
+          onClick: () => window.handleNavigation('harvest-import')
+        },
+          React.createElement('i', { className: 'bi bi-upload me-2' }),
+          'Open Harvest Import'
         )
       )
     ),

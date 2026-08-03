@@ -161,6 +161,21 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !user.TwoFactorEnabled {
+		token, err := auth.GenerateToken(&user)
+		if err != nil {
+			http.Error(w, "Failed to generate token", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(AuthResponse{
+			Token: token,
+			User:  user,
+		})
+		return
+	}
+
 	// Generate 2FA code
 	twoFactorCode, err := auth.GenerateTwoFactorCode()
 	if err != nil {
@@ -293,6 +308,11 @@ func VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 	result := database.DB.Where("email = ?", req.Email).First(&user)
 	if result.RowsAffected == 0 {
 		http.Error(w, "User not found", http.StatusUnauthorized)
+		return
+	}
+
+	if !user.TwoFactorEnabled {
+		http.Error(w, "2FA is not enabled for this user", http.StatusBadRequest)
 		return
 	}
 

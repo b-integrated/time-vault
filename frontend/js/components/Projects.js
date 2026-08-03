@@ -25,7 +25,7 @@ function Projects({ user }) {
   const [sortDirection, setSortDirection] = React.useState('asc');
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
   
   // Fetch projects and clients on component mount
   React.useEffect(() => {

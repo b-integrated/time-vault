@@ -11,7 +11,7 @@ function Auth({ onLogin }) {
   const [error, setError] = React.useState('');
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
   
   // Handle form submission
   const handleSubmit = (e) => {
@@ -49,6 +49,11 @@ function Auth({ onLogin }) {
     .then(data => {
       // Store email for verification
       setEmail(email);
+      
+      if (data.token) {
+        onLogin(data.token, data.user);
+        return;
+      }
       
       // Check if we're in development mode and received a code
       if (data.Code) {

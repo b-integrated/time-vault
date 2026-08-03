@@ -7,20 +7,44 @@ function Dashboard({ user }) {
     hoursThisMonth: 0,
     activeProjects: 0,
     pendingInvoices: 0,
-    totalEarnings: 0
+    totalEarnings: 0,
+    lastMonthInvoiced: 0,
+    lastMonthLabel: ''
   });
   const [recentEntries, setRecentEntries] = React.useState([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState('');
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
+
+  const getInvoiceTotal = (invoice) => {
+    if (invoice.total != null) return Number(invoice.total) || 0;
+    if (invoice.amount != null) return Number(invoice.amount) || 0;
+    return 0;
+  };
+
+  const handleApiResponse = (response, message) => {
+    if (response.status === 401 && window.handleUnauthorized) {
+      window.handleUnauthorized();
+      throw new Error('Unauthorized');
+    }
+    if (!response.ok) {
+      throw new Error(message);
+    }
+    return response.json();
+  };
   
   // Fetch dashboard data on component mount
   React.useEffect(() => {
     // Get token from localStorage
     const token = localStorage.getItem('token');
     if (!token) return;
+    const now = new Date();
+    const calculatedStats = {
+      hoursThisWeek: 0,
+      hoursThisMonth: 0
+    };
     
     // Fetch user's time entries
     fetch(`${API_URL}/users/${user.id}/time-entries`, {
@@ -28,15 +52,9 @@ function Dashboard({ user }) {
         'Authorization': `Bearer ${token}`
       }
     })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error('Failed to fetch time entries');
-      }
-      return response.json();
-    })
+    .then(response => handleApiResponse(response, 'Failed to fetch time entries'))
     .then(timeEntries => {
       // Calculate stats
-      const now = new Date();
       const startOfWeek = new Date(now);
       startOfWeek.setDate(now.getDate() - now.getDay());
       startOfWeek.setHours(0, 0, 0, 0);
@@ -44,12 +62,12 @@ function Dashboard({ user }) {
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       
       // Calculate hours this week
-      const hoursThisWeek = timeEntries
+      calculatedStats.hoursThisWeek = timeEntries
         .filter(entry => new Date(entry.startTime) >= startOfWeek)
         .reduce((total, entry) => total + (entry.duration / 3600), 0);
       
       // Calculate hours this month
-      const hoursThisMonth = timeEntries
+      calculatedStats.hoursThisMonth = timeEntries
         .filter(entry => new Date(entry.startTime) >= startOfMonth)
         .reduce((total, entry) => total + (entry.duration / 3600), 0);
       
@@ -67,12 +85,7 @@ function Dashboard({ user }) {
         }
       });
     })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error('Failed to fetch projects');
-      }
-      return response.json();
-    })
+    .then(response => handleApiResponse(response, 'Failed to fetch projects'))
     .then(projects => {
       // Count active projects
       const activeProjects = projects.filter(project => project.status === 'active').length;
@@ -83,34 +96,45 @@ function Dashboard({ user }) {
           'Authorization': `Bearer ${token}`
         }
       })
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Failed to fetch invoices');
-        }
-        return response.json();
-      })
+      .then(response => handleApiResponse(response, 'Failed to fetch invoices'))
       .then(invoices => {
         // Count pending invoices
-        const pendingInvoices = invoices.filter(invoice => invoice.status === 'draft' || invoice.status === 'sent').length;
+        const pendingInvoices = invoices.filter(invoice => ['draft', 'sent', 'open'].includes(invoice.status)).length;
         
         // Calculate total earnings (from paid invoices)
         const totalEarnings = invoices
           .filter(invoice => invoice.status === 'paid')
-          .reduce((total, invoice) => total + invoice.total, 0);
+          .reduce((total, invoice) => total + getInvoiceTotal(invoice), 0);
+
+        const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const thisMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+        const lastMonthLabel = lastMonthStart.toLocaleDateString('en-US', {
+          month: 'long',
+          year: 'numeric'
+        });
+        const lastMonthInvoiced = invoices
+          .filter(invoice => {
+            const issueDate = new Date(invoice.issueDate);
+            return issueDate >= lastMonthStart && issueDate < thisMonthStart;
+          })
+          .reduce((total, invoice) => total + getInvoiceTotal(invoice), 0);
         
         // Update stats
         setStats({
-          hoursThisWeek: Math.round(stats.hoursThisWeek * 10) / 10,
-          hoursThisMonth: Math.round(stats.hoursThisMonth * 10) / 10,
+          hoursThisWeek: Math.round(calculatedStats.hoursThisWeek * 10) / 10,
+          hoursThisMonth: Math.round(calculatedStats.hoursThisMonth * 10) / 10,
           activeProjects,
           pendingInvoices,
-          totalEarnings
+          totalEarnings,
+          lastMonthInvoiced,
+          lastMonthLabel
         });
         
         setIsLoading(false);
       });
     })
     .catch(error => {
+      if (error.message === 'Unauthorized') return;
       console.error('Error fetching dashboard data:', error);
       setError('Failed to load dashboard data');
       setIsLoading(false);
@@ -162,11 +186,14 @@ function Dashboard({ user }) {
   }
   
   // Render dashboard
+  const firstName = (user.name || 'there').split(' ')[0];
+  
   return React.createElement('div', { className: 'dashboard' },
     // Welcome message
     React.createElement('div', { className: 'welcome-message mb-4' },
-      React.createElement('h1', null, `Welcome back, ${user.name}!`),
-      React.createElement('p', null, 'Here\'s an overview of your time tracking and invoicing.')
+      React.createElement('div', { className: 'eyebrow' }, 'Dashboard'),
+      React.createElement('h1', null, `Welcome back, ${firstName}`),
+      React.createElement('p', null, 'Time, invoices, and billing work in one place.')
     ),
     
     // Stats cards
@@ -198,12 +225,19 @@ function Dashboard({ user }) {
         React.createElement('div', { className: 'stat-value' }, stats.pendingInvoices),
         React.createElement('div', { className: 'stat-description' }, 'Invoices awaiting payment')
       ),
+
+      // Last month invoiced
+      React.createElement('div', { className: 'stat-card' },
+        React.createElement('div', { className: 'stat-title' }, 'Last Month Invoiced'),
+        React.createElement('div', { className: 'stat-value' }, formatCurrency(stats.lastMonthInvoiced)),
+        React.createElement('div', { className: 'stat-description' }, stats.lastMonthLabel || 'Previous calendar month')
+      ),
       
       // Total earnings
       React.createElement('div', { className: 'stat-card' },
-        React.createElement('div', { className: 'stat-title' }, 'Total Earnings'),
+        React.createElement('div', { className: 'stat-title' }, 'Total Paid'),
         React.createElement('div', { className: 'stat-value' }, formatCurrency(stats.totalEarnings)),
-        React.createElement('div', { className: 'stat-description' }, 'Total earnings from paid invoices')
+        React.createElement('div', { className: 'stat-description' }, 'All paid invoices')
       )
     ),
     
@@ -215,23 +249,15 @@ function Dashboard({ user }) {
       React.createElement('div', { className: 'card-body' },
         recentEntries.length === 0
           ? React.createElement('p', null, 'No recent time entries')
-          : React.createElement('table', { className: 'table' },
-              React.createElement('thead', null,
-                React.createElement('tr', null,
-                  React.createElement('th', null, 'Date'),
-                  React.createElement('th', null, 'Project'),
-                  React.createElement('th', null, 'Description'),
-                  React.createElement('th', null, 'Duration')
-                )
-              ),
-              React.createElement('tbody', null,
-                recentEntries.map(entry => 
-                  React.createElement('tr', { key: entry.id },
-                    React.createElement('td', null, formatDate(entry.startTime)),
-                    React.createElement('td', null, entry.projectId), // Would show project name in a real app
-                    React.createElement('td', null, entry.description || 'No description'),
-                    React.createElement('td', null, formatDuration(entry.duration))
-                  )
+          : React.createElement('div', { className: 'entry-list' },
+              recentEntries.map(entry =>
+                React.createElement('article', { className: 'entry-card', key: entry.id },
+                  React.createElement('div', { className: 'entry-card-main' },
+                    React.createElement('div', { className: 'entry-date' }, formatDate(entry.startTime)),
+                    React.createElement('div', { className: 'entry-project' }, entry.project ? entry.project.name : `Project ${entry.projectId}`),
+                    React.createElement('div', { className: 'entry-description' }, entry.description || 'No description')
+                  ),
+                  React.createElement('div', { className: 'entry-duration' }, formatDuration(entry.duration))
                 )
               )
             )
@@ -244,16 +270,25 @@ function Dashboard({ user }) {
       React.createElement('div', { className: 'action-buttons' },
         React.createElement('button', { 
           className: 'btn btn-primary mr-2',
-          onClick: () => window.location.hash = '#time-tracker'
-        }, 'Start Tracking Time'),
+          onClick: () => window.handleNavigation('time-tracker')
+        },
+          React.createElement('i', { className: 'bi bi-play-fill' }),
+          React.createElement('span', null, 'Start Timer')
+        ),
         React.createElement('button', { 
           className: 'btn btn-secondary mr-2',
-          onClick: () => window.location.hash = '#invoices'
-        }, 'Create Invoice'),
+          onClick: () => window.handleNavigation('invoices')
+        },
+          React.createElement('i', { className: 'bi bi-receipt' }),
+          React.createElement('span', null, 'Invoice')
+        ),
         React.createElement('button', { 
           className: 'btn btn-secondary',
-          onClick: () => window.location.hash = '#reports'
-        }, 'View Reports')
+          onClick: () => window.handleNavigation('reports')
+        },
+          React.createElement('i', { className: 'bi bi-bar-chart' }),
+          React.createElement('span', null, 'Reports')
+        )
       )
     )
   );

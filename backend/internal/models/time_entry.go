@@ -17,12 +17,13 @@ type TimeEntry struct {
 	Duration    int            `json:"duration" gorm:"comment:Duration in seconds"`
 	Billable    bool           `json:"billable" gorm:"default:true"`
 	InvoiceID   *uint          `json:"invoiceId"`
+	HarvestID   string         `json:"harvestId" gorm:"index"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 
 	// Relationships
-	User    User    `json:"-" gorm:"foreignKey:UserID"`
-	Project Project `json:"-" gorm:"foreignKey:ProjectID"`
+	User    User     `json:"-" gorm:"foreignKey:UserID"`
+	Project Project  `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
 	Invoice *Invoice `json:"-" gorm:"foreignKey:InvoiceID"`
 }

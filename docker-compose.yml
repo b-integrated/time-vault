@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: time-vault-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: timevault
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - time-vault-pgdata:/var/lib/postgresql/data
+    networks:
+      - time-vault-net
+
+  backend:
+    build:
+      context: ./backend
+    image: time-vault-backend:local
+    container_name: time-vault-backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: timevault
+      DB_SSL_MODE: disable
+      JWT_SECRET: time-vault-local-dev-secret
+      JWT_EXPIRATION: 24h
+      PORT: "8080"
+      ENV: development
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    networks:
+      - time-vault-net
+
+  frontend:
+    build:
+      context: ./frontend
+    image: time-vault-frontend:local
+    container_name: time-vault-frontend
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    depends_on:
+      - backend
+    networks:
+      - time-vault-net
+
+volumes:
+  time-vault-pgdata:
+    external: true
+
+networks:
+  time-vault-net:
+    external: true

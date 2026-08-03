@@ -10,7 +10,7 @@ function FirstTimeSetup({ onSetupComplete }) {
   const [error, setError] = React.useState('');
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
   
   // Handle form submission
   const handleSubmit = (e) => {

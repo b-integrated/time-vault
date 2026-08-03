@@ -10,7 +10,15 @@ function App() {
   const [isFirstTimeSetup, setIsFirstTimeSetup] = React.useState(false);
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
+
+  const clearStoredSession = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setIsAuthenticated(false);
+    setCurrentUser(null);
+    setCurrentPage('login');
+  };
   
   // Check if user is authenticated on component mount
   React.useEffect(() => {
@@ -31,32 +39,29 @@ function App() {
         const user = JSON.parse(localStorage.getItem('user') || 'null');
         
         if (token && user) {
-          // Validate token with the server
-          fetch(`${API_URL}/auth/verify`, {
-            method: 'POST',
+          fetch(`${API_URL}/projects`, {
             headers: {
-              'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`
             }
           })
           .then(response => {
-            if (response.ok) {
-              // Token is valid
-              setIsAuthenticated(true);
-              setCurrentUser(user);
-              setCurrentPage('dashboard');
-            } else {
-              // Token is invalid, clear localStorage
-              localStorage.removeItem('token');
-              localStorage.removeItem('user');
-              setCurrentPage('login');
+            if (response.status === 401) {
+              clearStoredSession();
+              setIsLoading(false);
+              return;
             }
+
+            setIsAuthenticated(true);
+            setCurrentUser(user);
+            setCurrentPage('dashboard');
             setIsLoading(false);
           })
           .catch(error => {
-            console.error('Error validating token:', error);
+            console.error('Error validating stored session:', error);
+            setIsAuthenticated(true);
+            setCurrentUser(user);
+            setCurrentPage('dashboard');
             setIsLoading(false);
-            setCurrentPage('login');
           });
         } else {
           setIsLoading(false);
@@ -91,20 +96,28 @@ function App() {
   
   // Handle logout
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-    setCurrentPage('login');
+    clearStoredSession();
   };
   
   // Handle navigation
   const handleNavigation = (page) => {
     setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
   
   // Expose handleNavigation to window for access from other components
   window.handleNavigation = handleNavigation;
+  window.handleUnauthorized = clearStoredSession;
+  
+  const navItems = [
+    { page: 'dashboard', label: 'Dashboard', icon: 'bi-speedometer2' },
+    { page: 'time-tracker', label: 'Time', icon: 'bi-stopwatch' },
+    { page: 'projects', label: 'Projects', icon: 'bi-kanban' },
+    { page: 'clients', label: 'Clients', icon: 'bi-buildings' },
+    { page: 'invoices', label: 'Invoices', icon: 'bi-receipt' },
+    { page: 'reports', label: 'Reports', icon: 'bi-bar-chart' },
+    { page: 'settings', label: 'Settings', icon: 'bi-gear' }
+  ];
   
   // Render loading state
   if (isLoading) {
@@ -129,17 +142,26 @@ function App() {
   }
   
   // Render main application
-  return React.createElement(React.Fragment, null,
+  return React.createElement('div', { className: 'app-shell' },
     // Header
     React.createElement('header', { className: 'app-header' },
       React.createElement('div', { className: 'container' },
-        React.createElement('a', { href: '#', className: 'logo' }, 'TimeVault'),
+        React.createElement('a', { href: '#', className: 'logo', onClick: (e) => {
+          e.preventDefault();
+          handleNavigation('dashboard');
+        } },
+          React.createElement('span', { className: 'logo-mark' }, 'TV'),
+          React.createElement('span', { className: 'logo-text' }, 'TimeVault')
+        ),
         React.createElement('div', { className: 'user-menu' },
           React.createElement('span', { className: 'user-name' }, currentUser ? currentUser.name : ''),
           React.createElement('button', { 
-            className: 'btn btn-secondary', 
+            className: 'btn btn-secondary logout-btn', 
             onClick: handleLogout 
-          }, 'Logout')
+          },
+            React.createElement('i', { className: 'bi bi-box-arrow-right' }),
+            React.createElement('span', null, 'Logout')
+          )
         )
       )
     ),
@@ -148,75 +170,20 @@ function App() {
     React.createElement('nav', { className: 'main-nav' },
       React.createElement('div', { className: 'container' },
         React.createElement('ul', { className: 'nav-list' },
-          React.createElement('li', { className: 'nav-item' },
-            React.createElement('a', { 
-              href: '#', 
-              className: `nav-link ${currentPage === 'dashboard' ? 'active' : ''}`,
-              onClick: (e) => {
-                e.preventDefault();
-                handleNavigation('dashboard');
-              }
-            }, 'Dashboard')
-          ),
-          React.createElement('li', { className: 'nav-item' },
-            React.createElement('a', { 
-              href: '#', 
-              className: `nav-link ${currentPage === 'time-tracker' ? 'active' : ''}`,
-              onClick: (e) => {
-                e.preventDefault();
-                handleNavigation('time-tracker');
-              }
-            }, 'Time Tracker')
-          ),
-          React.createElement('li', { className: 'nav-item' },
-            React.createElement('a', { 
-              href: '#', 
-              className: `nav-link ${currentPage === 'projects' ? 'active' : ''}`,
-              onClick: (e) => {
-                e.preventDefault();
-                handleNavigation('projects');
-              }
-            }, 'Projects')
-          ),
-          React.createElement('li', { className: 'nav-item' },
-            React.createElement('a', { 
-              href: '#', 
-              className: `nav-link ${currentPage === 'clients' ? 'active' : ''}`,
-              onClick: (e) => {
-                e.preventDefault();
-                handleNavigation('clients');
-              }
-            }, 'Clients')
-          ),
-          React.createElement('li', { className: 'nav-item' },
-            React.createElement('a', { 
-              href: '#', 
-              className: `nav-link ${currentPage === 'invoices' ? 'active' : ''}`,
-              onClick: (e) => {
-                e.preventDefault();
-                handleNavigation('invoices');
-              }
-            }, 'Invoices')
-          ),
-          React.createElement('li', { className: 'nav-item' },
-            React.createElement('a', { 
-              href: '#', 
-              className: `nav-link ${currentPage === 'reports' ? 'active' : ''}`,
-              onClick: (e) => {
-                e.preventDefault();
-                handleNavigation('reports');
-              }
-            }, 'Reports')
-          ),
-          React.createElement('li', { className: 'nav-item' },
-            React.createElement('a', { 
-              href: '#', 
-              className: `nav-link ${currentPage === 'settings' ? 'active' : ''}`,
-              onClick: (e) => {
-                e.preventDefault();
-                handleNavigation('settings');
-              }
-            }, 'Settings')
+          navItems.map(item =>
+            React.createElement('li', { className: 'nav-item', key: item.page },
+              React.createElement('a', { 
+                href: '#', 
+                className: `nav-link ${currentPage === item.page ? 'active' : ''}`,
+                onClick: (e) => {
+                  e.preventDefault();
+                  handleNavigation(item.page);
+                }
+              },
+                React.createElement('i', { className: `bi ${item.icon} nav-icon` }),
+                React.createElement('span', null, item.label)
+              )
+            )
           )
         )
       )
@@ -231,6 +198,7 @@ function App() {
         currentPage === 'projects' && React.createElement(Projects, { user: currentUser }),
         currentPage === 'clients' && React.createElement(Clients, { user: currentUser }),
         currentPage === 'invoices' && React.createElement(Invoices, { user: currentUser }),
+        currentPage === 'harvest-import' && React.createElement(HarvestImport, { user: currentUser }),
         currentPage === 'reports' && React.createElement(Reports, { user: currentUser }),
         currentPage === 'settings' && React.createElement(Settings, { user: currentUser }),
         currentPage === 'user-management' && currentUser && currentUser.role === 'admin' && 

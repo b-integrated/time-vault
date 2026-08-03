@@ -5,6 +5,7 @@ function TimeTracker({ user }) {
   const [projectId, setProjectId] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [billable, setBillable] = React.useState(true);
+  const [selectedDate, setSelectedDate] = React.useState(formatDateForInput(new Date()));
   
   // State for timer
   const [isRunning, setIsRunning] = React.useState(false);
@@ -19,7 +20,18 @@ function TimeTracker({ user }) {
   const [error, setError] = React.useState('');
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
+
+  const handleApiResponse = (response, message) => {
+    if (response.status === 401 && window.handleUnauthorized) {
+      window.handleUnauthorized();
+      throw new Error('Unauthorized');
+    }
+    if (!response.ok) {
+      throw new Error(message);
+    }
+    return response.json();
+  };
   
   // Fetch projects and time entries on component mount
   React.useEffect(() => {
@@ -33,12 +45,7 @@ function TimeTracker({ user }) {
         'Authorization': `Bearer ${token}`
       }
     })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error('Failed to fetch projects');
-      }
-      return response.json();
-    })
+    .then(response => handleApiResponse(response, 'Failed to fetch projects'))
     .then(data => {
       setProjects(data);
       
@@ -49,12 +56,7 @@ function TimeTracker({ user }) {
         }
       });
     })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error('Failed to fetch time entries');
-      }
-      return response.json();
-    })
+    .then(response => handleApiResponse(response, 'Failed to fetch time entries'))
     .then(data => {
       // Sort time entries by start time (newest first)
       const sortedEntries = data.sort((a, b) => 
@@ -65,6 +67,7 @@ function TimeTracker({ user }) {
       setIsLoading(false);
     })
     .catch(error => {
+      if (error.message === 'Unauthorized') return;
       console.error('Error fetching data:', error);
       setError('Failed to load data');
       setIsLoading(false);
@@ -129,6 +132,22 @@ function TimeTracker({ user }) {
       day: 'numeric'
     });
   };
+
+  function formatDateForInput(date) {
+    const d = new Date(date);
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${month}-${day}`;
+  }
+
+  const formatSelectedDate = (dateString) => {
+    const date = new Date(`${dateString}T12:00:00`);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
   
   // Format duration
   const formatDuration = (seconds) => {
@@ -141,6 +160,12 @@ function TimeTracker({ user }) {
   const getProjectName = (id) => {
     const project = projects.find(p => p.id === id);
     return project ? project.name : 'Unknown Project';
+  };
+
+  const shiftSelectedDate = (days) => {
+    const nextDate = new Date(`${selectedDate}T12:00:00`);
+    nextDate.setDate(nextDate.getDate() + days);
+    setSelectedDate(formatDateForInput(nextDate));
   };
   
   // Start timer
@@ -216,6 +241,7 @@ function TimeTracker({ user }) {
     .then(data => {
       // Add new time entry to list
       setTimeEntries([data, ...timeEntries]);
+      setSelectedDate(formatDateForInput(startTime));
       
       // Reset form
       setProjectId('');
@@ -246,6 +272,14 @@ function TimeTracker({ user }) {
       React.createElement('p', null, 'Loading time tracker...')
     );
   }
+
+  const selectedEntries = timeEntries.filter(entry => 
+    formatDateForInput(new Date(entry.startTime)) === selectedDate
+  );
+  const selectedDuration = selectedEntries.reduce((total, entry) => total + entry.duration, 0);
+  const selectedBillableDuration = selectedEntries
+    .filter(entry => entry.billable)
+    .reduce((total, entry) => total + entry.duration, 0);
   
   // Render time tracker
   return React.createElement('div', { className: 'time-tracker' },
@@ -333,32 +367,66 @@ function TimeTracker({ user }) {
       )
     ),
     
-    // Recent time entries
+    // Day selector
+    React.createElement('section', { className: 'day-selector-card' },
+      React.createElement('button', {
+        type: 'button',
+        className: 'btn btn-secondary day-nav-btn',
+        onClick: () => shiftSelectedDate(-1),
+        'aria-label': 'Previous day'
+      }, React.createElement('i', { className: 'bi bi-chevron-left' })),
+      React.createElement('div', { className: 'selected-day' },
+        React.createElement('label', { htmlFor: 'selected-date', className: 'eyebrow' }, 'Selected Day'),
+        React.createElement('input', {
+          id: 'selected-date',
+          className: 'form-control selected-day-input',
+          type: 'date',
+          value: selectedDate,
+          onChange: (e) => setSelectedDate(e.target.value)
+        }),
+        React.createElement('div', { className: 'selected-day-label' }, formatSelectedDate(selectedDate))
+      ),
+      React.createElement('button', {
+        type: 'button',
+        className: 'btn btn-secondary day-nav-btn',
+        onClick: () => shiftSelectedDate(1),
+        'aria-label': 'Next day'
+      }, React.createElement('i', { className: 'bi bi-chevron-right' }))
+    ),
+
+    React.createElement('div', { className: 'daily-summary' },
+      React.createElement('div', { className: 'daily-summary-item' },
+        React.createElement('span', null, 'Total'),
+        React.createElement('strong', null, formatDuration(selectedDuration))
+      ),
+      React.createElement('div', { className: 'daily-summary-item' },
+        React.createElement('span', null, 'Billable'),
+        React.createElement('strong', null, formatDuration(selectedBillableDuration))
+      ),
+      React.createElement('div', { className: 'daily-summary-item' },
+        React.createElement('span', null, 'Entries'),
+        React.createElement('strong', null, selectedEntries.length)
+      )
+    ),
+
+    // Selected day entries
     React.createElement('div', { className: 'card' },
       React.createElement('div', { className: 'card-header' },
-        React.createElement('h2', null, 'Recent Time Entries')
+        React.createElement('h2', null, formatSelectedDate(selectedDate))
       ),
       React.createElement('div', { className: 'card-body' },
-        timeEntries.length === 0
-          ? React.createElement('p', null, 'No time entries yet')
-          : React.createElement('table', { className: 'table' },
-              React.createElement('thead', null,
-                React.createElement('tr', null,
-                  React.createElement('th', null, 'Date'),
-                  React.createElement('th', null, 'Project'),
-                  React.createElement('th', null, 'Description'),
-                  React.createElement('th', null, 'Duration'),
-                  React.createElement('th', null, 'Billable')
-                )
-              ),
-              React.createElement('tbody', null,
-                timeEntries.slice(0, 10).map(entry => 
-                  React.createElement('tr', { key: entry.id },
-                    React.createElement('td', null, formatDate(entry.startTime)),
-                    React.createElement('td', null, getProjectName(entry.projectId)),
-                    React.createElement('td', null, entry.description || 'No description'),
-                    React.createElement('td', null, formatDuration(entry.duration)),
-                    React.createElement('td', null, entry.billable ? 'Yes' : 'No')
+        selectedEntries.length === 0
+          ? React.createElement('p', { className: 'empty-day-message' }, 'No time entries for this day')
+          : React.createElement('div', { className: 'entry-list day-entry-list' },
+              selectedEntries.map(entry =>
+                React.createElement('article', { className: 'entry-card', key: entry.id },
+                  React.createElement('div', { className: 'entry-card-main' },
+                    React.createElement('div', { className: 'entry-project' }, entry.project ? entry.project.name : getProjectName(entry.projectId)),
+                    React.createElement('div', { className: 'entry-description' }, entry.description || 'No description')
+                  ),
+                  React.createElement('div', { className: 'entry-meta-stack' },
+                    React.createElement('div', { className: 'entry-duration' }, formatDuration(entry.duration)),
+                    React.createElement('div', { className: `entry-billable ${entry.billable ? 'is-billable' : 'is-nonbillable'}` }, entry.billable ? 'Billable' : 'No bill')
                   )
                 )
               )

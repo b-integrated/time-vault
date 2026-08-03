@@ -59,6 +59,7 @@ func Migrate() error {
 		&models.TimeEntry{},
 		&models.Invoice{},
 		&models.UserSettings{},
+		&models.APIToken{},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)

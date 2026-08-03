@@ -22,7 +22,7 @@ function Clients({ user }) {
   const [sortDirection, setSortDirection] = React.useState('asc');
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
   
   // Fetch clients on component mount
   React.useEffect(() => {

@@ -1,0 +1,92 @@
+{
+  "startDate": "2025-07-01",
+  "endDate": "2026-08-01",
+  "activeClientsWithActiveProjects": 5,
+  "activeProjects": 8,
+  "harvestTimeEntriesFetched": 1226,
+  "activeProjectTimeEntries": 1226,
+  "positiveTimeEntriesIncluded": 1196,
+  "zeroHourEntriesSkipped": 30,
+  "inactiveClientOrProjectEntriesSkipped": 0,
+  "csvPath": "tmp/timevault-import/harvest-timevault-2025-07-01-to-2026-08-01-clean.csv",
+  "clients": [
+    {
+      "harvestClientId": 140604,
+      "name": "Bomhof Integrated"
+    },
+    {
+      "harvestClientId": 140606,
+      "name": "Century Driving School"
+    },
+    {
+      "harvestClientId": 16655362,
+      "name": "Influxdb"
+    },
+    {
+      "harvestClientId": 140889,
+      "name": "Legacy Capital Planners"
+    },
+    {
+      "harvestClientId": 11621319,
+      "name": "Ruumetry LLC"
+    }
+  ],
+  "projects": [
+    {
+      "harvestProjectId": 347021,
+      "name": "Internal",
+      "clientName": "Bomhof Integrated",
+      "rate": 0.0,
+      "status": "active"
+    },
+    {
+      "harvestProjectId": 41005665,
+      "name": "Two Way Software",
+      "clientName": "Bomhof Integrated",
+      "rate": 0.0,
+      "status": "active"
+    },
+    {
+      "harvestProjectId": 354600,
+      "name": "Century Driving Onramp misc",
+      "clientName": "Century Driving School",
+      "rate": 110.0,
+      "status": "active"
+    },
+    {
+      "harvestProjectId": 48565953,
+      "name": "Convo",
+      "clientName": "Century Driving School",
+      "rate": 110.0,
+      "status": "active"
+    },
+    {
+      "harvestProjectId": 45919328,
+      "name": "Influxdb",
+      "clientName": "Influxdb",
+      "rate": 145.0,
+      "status": "active"
+    },
+    {
+      "harvestProjectId": 46378387,
+      "name": "Redtails EMoney grading system",
+      "clientName": "Legacy Capital Planners",
+      "rate": 0.0,
+      "status": "active"
+    },
+    {
+      "harvestProjectId": 44561712,
+      "name": "Security Audit",
+      "clientName": "Legacy Capital Planners",
+      "rate": 0.0,
+      "status": "active"
+    },
+    {
+      "harvestProjectId": 31218281,
+      "name": "Inventory / Listings / Misc",
+      "clientName": "Ruumetry LLC",
+      "rate": 0.0,
+      "status": "active"
+    }
+  ]
+}

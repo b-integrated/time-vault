@@ -1,0 +1,137 @@
+{
+  "from": "2025-08-02",
+  "to": "2026-08-02",
+  "fetched": 25,
+  "imported": 0,
+  "skipped": 25,
+  "errors": [],
+  "createdClients": [],
+  "importedInvoices": [],
+  "skippedInvoices": [
+    {
+      "number": "3810",
+      "harvestId": "53001198",
+      "reason": "already exists"
+    },
+    {
+      "number": "3716",
+      "harvestId": "31951585",
+      "reason": "already exists"
+    },
+    {
+      "number": "3809",
+      "harvestId": "52711029",
+      "reason": "already exists"
+    },
+    {
+      "number": "3808",
+      "harvestId": "52710819",
+      "reason": "already exists"
+    },
+    {
+      "number": "3806",
+      "harvestId": "52310751",
+      "reason": "already exists"
+    },
+    {
+      "number": "3805",
+      "harvestId": "52310018",
+      "reason": "already exists"
+    },
+    {
+      "number": "3803",
+      "harvestId": "51956365",
+      "reason": "already exists"
+    },
+    {
+      "number": "3802",
+      "harvestId": "51956157",
+      "reason": "already exists"
+    },
+    {
+      "number": "3800",
+      "harvestId": "51581518",
+      "reason": "already exists"
+    },
+    {
+      "number": "3799",
+      "harvestId": "51581334",
+      "reason": "already exists"
+    },
+    {
+      "number": "3797",
+      "harvestId": "51207554",
+      "reason": "already exists"
+    },
+    {
+      "number": "3796",
+      "harvestId": "51207124",
+      "reason": "already exists"
+    },
+    {
+      "number": "3794",
+      "harvestId": "50833893",
+      "reason": "already exists"
+    },
+    {
+      "number": "3793",
+      "harvestId": "50833763",
+      "reason": "already exists"
+    },
+    {
+      "number": "3791",
+      "harvestId": "50282388",
+      "reason": "already exists"
+    },
+    {
+      "number": "3790",
+      "harvestId": "50122424",
+      "reason": "already exists"
+    },
+    {
+      "number": "3788",
+      "harvestId": "50084685",
+      "reason": "already exists"
+    },
+    {
+      "number": "3787",
+      "harvestId": "49736137",
+      "reason": "already exists"
+    },
+    {
+      "number": "3786",
+      "harvestId": "49702879",
+      "reason": "already exists"
+    },
+    {
+      "number": "3784",
+      "harvestId": "49353513",
+      "reason": "already exists"
+    },
+    {
+      "number": "3783",
+      "harvestId": "49353339",
+      "reason": "already exists"
+    },
+    {
+      "number": "3781",
+      "harvestId": "48923450",
+      "reason": "already exists"
+    },
+    {
+      "number": "3780",
+      "harvestId": "48923120",
+      "reason": "already exists"
+    },
+    {
+      "number": "3778",
+      "harvestId": "48542967",
+      "reason": "already exists"
+    },
+    {
+      "number": "3776",
+      "harvestId": "48212732",
+      "reason": "already exists"
+    }
+  ]
+}

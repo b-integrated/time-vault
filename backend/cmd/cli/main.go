@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
+	"github.com/timevault/backend/internal/auth"
 	"github.com/timevault/backend/internal/database"
 	"github.com/timevault/backend/internal/models"
 	"golang.org/x/crypto/bcrypt"
@@ -187,6 +189,117 @@ var deleteUserCmd = &cobra.Command{
 	},
 }
 
+var generateAPITokenCmd = &cobra.Command{
+	Use:   "generate-api-token",
+	Short: "Generate a TimeVault API token for automation",
+	Run: func(cmd *cobra.Command, args []string) {
+		email, _ := cmd.Flags().GetString("email")
+		name, _ := cmd.Flags().GetString("name")
+		expiresIn, _ := cmd.Flags().GetString("expires-in")
+
+		if email == "" || name == "" {
+			log.Fatalf("Email and token name are required")
+		}
+
+		var user models.User
+		result := database.DB.Where("email = ?", email).First(&user)
+		if result.Error != nil {
+			if result.Error == gorm.ErrRecordNotFound {
+				log.Fatalf("User with email %s not found", email)
+			}
+			log.Fatalf("Failed to find user: %v", result.Error)
+		}
+
+		rawToken, err := auth.GenerateAPIToken()
+		if err != nil {
+			log.Fatalf("Failed to generate API token: %v", err)
+		}
+
+		var expiresAt *time.Time
+		if expiresIn != "" {
+			duration, err := time.ParseDuration(expiresIn)
+			if err != nil {
+				log.Fatalf("Invalid --expires-in duration: %v", err)
+			}
+			value := time.Now().Add(duration)
+			expiresAt = &value
+		}
+
+		apiToken := models.APIToken{
+			UserID:      user.ID,
+			Name:        name,
+			TokenHash:   auth.HashAPIToken(rawToken),
+			TokenPrefix: auth.APITokenDisplayPrefix(rawToken),
+			ExpiresAt:   expiresAt,
+		}
+		if err := database.DB.Create(&apiToken).Error; err != nil {
+			log.Fatalf("Failed to store API token: %v", err)
+		}
+
+		fmt.Println(rawToken)
+	},
+}
+
+var listAPITokensCmd = &cobra.Command{
+	Use:   "list-api-tokens",
+	Short: "List API tokens without showing raw token values",
+	Run: func(cmd *cobra.Command, args []string) {
+		email, _ := cmd.Flags().GetString("email")
+
+		var tokens []models.APIToken
+		query := database.DB.Preload("User").Order("created_at desc")
+		if email != "" {
+			var user models.User
+			result := database.DB.Where("email = ?", email).First(&user)
+			if result.Error != nil {
+				if result.Error == gorm.ErrRecordNotFound {
+					log.Fatalf("User with email %s not found", email)
+				}
+				log.Fatalf("Failed to find user: %v", result.Error)
+			}
+			query = query.Where("user_id = ?", user.ID)
+		}
+		if err := query.Find(&tokens).Error; err != nil {
+			log.Fatalf("Failed to retrieve API tokens: %v", err)
+		}
+
+		fmt.Println("API Tokens:")
+		fmt.Println("ID\tUser\tName\tPrefix\tLast Used\tExpires")
+		fmt.Println("--\t----\t----\t------\t---------\t-------")
+		for _, token := range tokens {
+			lastUsed := ""
+			if token.LastUsedAt != nil {
+				lastUsed = token.LastUsedAt.Format(time.RFC3339)
+			}
+			expires := ""
+			if token.ExpiresAt != nil {
+				expires = token.ExpiresAt.Format(time.RFC3339)
+			}
+			fmt.Printf("%d\t%s\t%s\t%s\t%s\t%s\n", token.ID, token.User.Email, token.Name, token.TokenPrefix, lastUsed, expires)
+		}
+	},
+}
+
+var revokeAPITokenCmd = &cobra.Command{
+	Use:   "revoke-api-token",
+	Short: "Revoke an API token by ID",
+	Run: func(cmd *cobra.Command, args []string) {
+		id, _ := cmd.Flags().GetUint("id")
+		if id == 0 {
+			log.Fatalf("Token id is required")
+		}
+
+		var token models.APIToken
+		if err := database.DB.First(&token, id).Error; err != nil {
+			log.Fatalf("API token not found: %v", err)
+		}
+		if err := database.DB.Delete(&token).Error; err != nil {
+			log.Fatalf("Failed to revoke API token: %v", err)
+		}
+		fmt.Printf("API token revoked: %d\n", id)
+	},
+}
+
 func init() {
 	// Add user command flags
 	addUserCmd.Flags().StringP("name", "n", "", "User's name")
@@ -205,12 +318,22 @@ func init() {
 	// Delete user command flags
 	deleteUserCmd.Flags().StringP("email", "e", "", "User's email")
 
+	// API token command flags
+	generateAPITokenCmd.Flags().StringP("email", "e", "", "User's email")
+	generateAPITokenCmd.Flags().StringP("name", "n", "", "Token name")
+	generateAPITokenCmd.Flags().String("expires-in", "", "Optional duration until expiration, such as 2160h for 90 days")
+	listAPITokensCmd.Flags().StringP("email", "e", "", "Filter by user's email")
+	revokeAPITokenCmd.Flags().Uint("id", 0, "API token ID")
+
 	// Add commands to root command
 	rootCmd.AddCommand(listUsersCmd)
 	rootCmd.AddCommand(addUserCmd)
 	rootCmd.AddCommand(resetPasswordCmd)
 	rootCmd.AddCommand(getUserCmd)
 	rootCmd.AddCommand(deleteUserCmd)
+	rootCmd.AddCommand(generateAPITokenCmd)
+	rootCmd.AddCommand(listAPITokensCmd)
+	rootCmd.AddCommand(revokeAPITokenCmd)
 }
 
 func main() {

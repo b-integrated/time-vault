@@ -6,6 +6,7 @@ function Invoices({ user }) {
   const [clients, setClients] = React.useState([]);
   const [timeEntries, setTimeEntries] = React.useState([]);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [isGenerating, setIsGenerating] = React.useState(false);
   const [error, setError] = React.useState('');
   
   // State for form
@@ -17,8 +18,41 @@ function Invoices({ user }) {
     issueDate: formatDateForInput(new Date()),
     dueDate: formatDateForInput(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)), // 30 days from now
     status: 'draft',
+    amount: '',
+    tax: '0',
+    dueAmount: '',
+    paidDate: '',
+    subject: '',
+    billerClientId: '1',
+    billerName: 'Bomhof Integrated LLC',
+    billerAddress: '',
+    billerEmail: '',
+    billerPhone: '',
+    clientName: '',
+    clientAddress: '',
+    clientEmail: '',
+    clientPhone: '',
     notes: '',
     selectedTimeEntries: []
+  });
+  const [generatorData, setGeneratorData] = React.useState({
+    clientId: '',
+    number: `INV-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+    startDate: formatDateForInput(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
+    endDate: formatDateForInput(new Date()),
+    issueDate: formatDateForInput(new Date()),
+    dueDate: formatDateForInput(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
+    subject: '',
+    billerClientId: '1',
+    billerName: 'Bomhof Integrated LLC',
+    billerAddress: '',
+    billerEmail: '',
+    billerPhone: '',
+    clientName: '',
+    clientAddress: '',
+    clientEmail: '',
+    clientPhone: '',
+    notes: ''
   });
   
   // State for filtering and sorting
@@ -31,7 +65,7 @@ function Invoices({ user }) {
   const [showTimeEntrySelector, setShowTimeEntrySelector] = React.useState(false);
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
   
   // Format date for input field
   function formatDateForInput(date) {
@@ -51,6 +85,10 @@ function Invoices({ user }) {
     const options = { year: 'numeric', month: 'short', day: 'numeric' };
     return new Date(dateString).toLocaleDateString(undefined, options);
   }
+
+  function toAPIDate(dateString) {
+    return `${dateString}T00:00:00Z`;
+  }
   
   // Format currency
   function formatCurrency(amount) {
@@ -59,6 +97,29 @@ function Invoices({ user }) {
       currency: 'USD'
     }).format(amount);
   }
+
+  const applyBillerFields = (data, client) => ({
+    ...data,
+    billerClientId: client ? client.id.toString() : data.billerClientId,
+    billerName: client ? (client.name || '') : data.billerName,
+    billerAddress: client ? (client.address || '') : data.billerAddress,
+    billerEmail: client ? (client.email || '') : data.billerEmail,
+    billerPhone: client ? (client.phone || '') : data.billerPhone
+  });
+
+  const applyBillToFields = (data, client) => ({
+    ...data,
+    clientName: client ? (client.name || '') : '',
+    clientAddress: client ? (client.address || '') : '',
+    clientEmail: client ? (client.email || '') : '',
+    clientPhone: client ? (client.phone || '') : ''
+  });
+
+  const getDefaultBiller = (clientList) => {
+    return clientList.find(client => client.id === 1) ||
+      clientList.find(client => (client.name || '').toLowerCase().includes('bomhof')) ||
+      null;
+  };
   
   // Fetch invoices, clients, and time entries on component mount
   React.useEffect(() => {
@@ -80,6 +141,11 @@ function Invoices({ user }) {
     })
     .then(data => {
       setClients(data);
+      const defaultBiller = getDefaultBiller(data);
+      if (defaultBiller) {
+        setFormData(current => applyBillerFields(current, defaultBiller));
+        setGeneratorData(current => applyBillerFields(current, defaultBiller));
+      }
       
       // Fetch invoices
       return fetch(`${API_URL}/invoices`, {
@@ -126,10 +192,22 @@ function Invoices({ user }) {
   // Handle form input change
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData({
+    const nextData = {
       ...formData,
       [name]: value
-    });
+    };
+
+    if (name === 'clientId') {
+      const client = clients.find(c => c.id === parseInt(value));
+      Object.assign(nextData, applyBillToFields(nextData, client));
+    }
+
+    if (name === 'billerClientId') {
+      const client = clients.find(c => c.id === parseInt(value));
+      Object.assign(nextData, applyBillerFields(nextData, client));
+    }
+
+    setFormData(nextData);
   };
   
   // Handle time entry selection
@@ -186,16 +264,34 @@ function Invoices({ user }) {
     const token = localStorage.getItem('token');
     if (!token) return;
     
-    // Calculate total
-    const total = calculateInvoiceTotal();
+    // Calculate total from selected time, or keep imported/manual invoice totals editable.
+    const selectedTotal = calculateInvoiceTotal();
+    const manualAmount = parseFloat(formData.amount || '0') || 0;
+    const tax = parseFloat(formData.tax || '0') || 0;
+    const amount = formData.selectedTimeEntries.length > 0 ? selectedTotal : manualAmount;
+    const total = amount + tax;
+    const dueAmount = formData.dueAmount === '' ? total : parseFloat(formData.dueAmount || '0') || 0;
     
     // Prepare invoice data
     const invoiceData = {
       clientId: parseInt(formData.clientId),
       number: formData.number,
-      issueDate: formData.issueDate,
-      dueDate: formData.dueDate,
+      issueDate: toAPIDate(formData.issueDate),
+      dueDate: toAPIDate(formData.dueDate),
       status: formData.status,
+      amount: amount,
+      tax: tax,
+      dueAmount: dueAmount,
+      paidDate: formData.paidDate ? toAPIDate(formData.paidDate) : null,
+      subject: formData.subject,
+      billerName: formData.billerName,
+      billerAddress: formData.billerAddress,
+      billerEmail: formData.billerEmail,
+      billerPhone: formData.billerPhone,
+      clientName: formData.clientName,
+      clientAddress: formData.clientAddress,
+      clientEmail: formData.clientEmail,
+      clientPhone: formData.clientPhone,
       notes: formData.notes,
       amount: total,
       tax: 0, // Could add tax calculation later
@@ -248,6 +344,82 @@ function Invoices({ user }) {
       setError(`Failed to ${isEditing ? 'update' : 'create'} invoice`);
     });
   };
+
+  const handleGeneratorChange = (e) => {
+    const { name, value } = e.target;
+    const nextData = {
+      ...generatorData,
+      [name]: value
+    };
+
+    if (name === 'clientId') {
+      const client = clients.find(c => c.id === parseInt(value));
+      Object.assign(nextData, applyBillToFields(nextData, client));
+    }
+
+    if (name === 'billerClientId') {
+      const client = clients.find(c => c.id === parseInt(value));
+      Object.assign(nextData, applyBillerFields(nextData, client));
+    }
+
+    setGeneratorData(nextData);
+  };
+
+  const handleGenerateInvoice = (e) => {
+    e.preventDefault();
+    if (!generatorData.clientId || !generatorData.number || !generatorData.startDate || !generatorData.endDate) {
+      setError('Client, invoice number, start date, and end date are required');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setIsGenerating(true);
+
+    fetch(`${API_URL}/invoices/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        clientId: parseInt(generatorData.clientId),
+        number: generatorData.number,
+        startDate: toAPIDate(generatorData.startDate),
+        endDate: toAPIDate(generatorData.endDate),
+        issueDate: toAPIDate(generatorData.issueDate),
+        dueDate: toAPIDate(generatorData.dueDate),
+        subject: generatorData.subject,
+        billerName: generatorData.billerName,
+        billerAddress: generatorData.billerAddress,
+        billerEmail: generatorData.billerEmail,
+        billerPhone: generatorData.billerPhone,
+        clientName: generatorData.clientName,
+        clientAddress: generatorData.clientAddress,
+        clientEmail: generatorData.clientEmail,
+        clientPhone: generatorData.clientPhone,
+        notes: generatorData.notes
+      })
+    })
+    .then(response => {
+      if (!response.ok) {
+        return response.text().then(text => { throw new Error(text || 'Failed to generate invoice'); });
+      }
+      return response.json();
+    })
+    .then(data => {
+      setInvoices([data, ...invoices]);
+      setTimeEntries(timeEntries.filter(entry => entry.invoiceId || (entry.project && entry.project.clientId !== data.clientId)));
+      setError('');
+    })
+    .catch(error => {
+      console.error('Error generating invoice:', error);
+      setError(error.message || 'Failed to generate invoice');
+    })
+    .finally(() => {
+      setIsGenerating(false);
+    });
+  };
   
   // Handle edit invoice
   const handleEdit = (invoice) => {
@@ -269,6 +441,8 @@ function Invoices({ user }) {
       return response.json();
     })
     .then(data => {
+      const client = invoice.client || {};
+
       // Set form data with invoice details and time entries
       setFormData({
         clientId: invoice.clientId.toString(),
@@ -276,6 +450,20 @@ function Invoices({ user }) {
         issueDate: formatDateForInput(invoice.issueDate),
         dueDate: formatDateForInput(invoice.dueDate),
         status: invoice.status,
+        amount: invoice.amount != null ? invoice.amount : '',
+        tax: invoice.tax != null ? invoice.tax : 0,
+        dueAmount: invoice.dueAmount != null ? invoice.dueAmount : '',
+        paidDate: invoice.paidDate ? formatDateForInput(invoice.paidDate) : '',
+        subject: invoice.subject || '',
+        billerClientId: '',
+        billerName: invoice.billerName || 'Bomhof Integrated LLC',
+        billerAddress: invoice.billerAddress || '',
+        billerEmail: invoice.billerEmail || '',
+        billerPhone: invoice.billerPhone || '',
+        clientName: invoice.clientName || client.name || getClientName(invoice.clientId),
+        clientAddress: invoice.clientAddress || client.address || '',
+        clientEmail: invoice.clientEmail || client.email || '',
+        clientPhone: invoice.clientPhone || client.phone || '',
         notes: invoice.notes || '',
         selectedTimeEntries: data.map(entry => entry.id)
       });
@@ -286,6 +474,38 @@ function Invoices({ user }) {
     .catch(error => {
       console.error('Error fetching invoice time entries:', error);
       setError('Failed to load invoice details');
+    });
+  };
+
+  const handleExportPDF = (invoice) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    fetch(`${API_URL}/invoices/${invoice.id}/pdf`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Failed to export invoice PDF');
+      }
+      return response.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `invoice-${invoice.number}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setError('');
+    })
+    .catch(error => {
+      console.error('Error exporting invoice PDF:', error);
+      setError('Failed to export invoice PDF');
     });
   };
   
@@ -346,6 +566,20 @@ function Invoices({ user }) {
       issueDate: formatDateForInput(new Date()),
       dueDate: formatDateForInput(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
       status: 'draft',
+      amount: '',
+      tax: '0',
+      dueAmount: '',
+      paidDate: '',
+      subject: '',
+      billerClientId: '1',
+      billerName: 'Bomhof Integrated LLC',
+      billerAddress: '',
+      billerEmail: '',
+      billerPhone: '',
+      clientName: '',
+      clientAddress: '',
+      clientEmail: '',
+      clientPhone: '',
       notes: '',
       selectedTimeEntries: []
     });
@@ -414,12 +648,125 @@ function Invoices({ user }) {
         return 'bg-secondary';
       case 'sent':
         return 'bg-primary';
+      case 'open':
+        return 'bg-warning';
       case 'paid':
         return 'bg-success';
       default:
         return 'bg-secondary';
     }
   };
+
+  function renderAddressFields(data, prefix = '') {
+    const namePrefix = prefix ? `${prefix}-` : '';
+    return React.createElement('div', { className: 'invoice-address-grid' },
+      React.createElement('section', { className: 'invoice-address-panel' },
+        React.createElement('h3', null, 'Biller'),
+        React.createElement('div', { className: 'form-group' },
+          React.createElement('label', { htmlFor: `${namePrefix}billerClientId`, className: 'form-label' }, 'Biller Client'),
+          React.createElement('select', {
+            id: `${namePrefix}billerClientId`,
+            name: 'billerClientId',
+            className: 'form-control',
+            value: data.billerClientId || '',
+            onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange
+          },
+            React.createElement('option', { value: '' }, 'Custom biller'),
+            clients.map(client => React.createElement('option', { key: client.id, value: client.id }, client.name))
+          )
+        ),
+        React.createElement('div', { className: 'form-group' },
+          React.createElement('label', { htmlFor: `${namePrefix}billerName`, className: 'form-label' }, 'Name'),
+          React.createElement('input', {
+            id: `${namePrefix}billerName`,
+            name: 'billerName',
+            className: 'form-control',
+            value: data.billerName || '',
+            onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange
+          })
+        ),
+        React.createElement('div', { className: 'form-group' },
+          React.createElement('label', { htmlFor: `${namePrefix}billerAddress`, className: 'form-label' }, 'Address'),
+          React.createElement('textarea', {
+            id: `${namePrefix}billerAddress`,
+            name: 'billerAddress',
+            className: 'form-control',
+            value: data.billerAddress || '',
+            onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange,
+            rows: 3
+          })
+        ),
+        React.createElement('div', { className: 'row' },
+          React.createElement('div', { className: 'col-md-6 form-group' },
+            React.createElement('label', { htmlFor: `${namePrefix}billerEmail`, className: 'form-label' }, 'Email'),
+            React.createElement('input', {
+              id: `${namePrefix}billerEmail`,
+              name: 'billerEmail',
+              className: 'form-control',
+              value: data.billerEmail || '',
+              onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange
+            })
+          ),
+          React.createElement('div', { className: 'col-md-6 form-group' },
+            React.createElement('label', { htmlFor: `${namePrefix}billerPhone`, className: 'form-label' }, 'Phone'),
+            React.createElement('input', {
+              id: `${namePrefix}billerPhone`,
+              name: 'billerPhone',
+              className: 'form-control',
+              value: data.billerPhone || '',
+              onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange
+            })
+          )
+        )
+      ),
+      React.createElement('section', { className: 'invoice-address-panel' },
+        React.createElement('h3', null, 'Bill To'),
+        React.createElement('div', { className: 'form-group' },
+          React.createElement('label', { htmlFor: `${namePrefix}clientName`, className: 'form-label' }, 'Name'),
+          React.createElement('input', {
+            id: `${namePrefix}clientName`,
+            name: 'clientName',
+            className: 'form-control',
+            value: data.clientName || '',
+            onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange
+          })
+        ),
+        React.createElement('div', { className: 'form-group' },
+          React.createElement('label', { htmlFor: `${namePrefix}clientAddress`, className: 'form-label' }, 'Address'),
+          React.createElement('textarea', {
+            id: `${namePrefix}clientAddress`,
+            name: 'clientAddress',
+            className: 'form-control',
+            value: data.clientAddress || '',
+            onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange,
+            rows: 3
+          })
+        ),
+        React.createElement('div', { className: 'row' },
+          React.createElement('div', { className: 'col-md-6 form-group' },
+            React.createElement('label', { htmlFor: `${namePrefix}clientEmail`, className: 'form-label' }, 'Email'),
+            React.createElement('input', {
+              id: `${namePrefix}clientEmail`,
+              name: 'clientEmail',
+              className: 'form-control',
+              value: data.clientEmail || '',
+              onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange
+            })
+          ),
+          React.createElement('div', { className: 'col-md-6 form-group' },
+            React.createElement('label', { htmlFor: `${namePrefix}clientPhone`, className: 'form-label' }, 'Phone'),
+            React.createElement('input', {
+              id: `${namePrefix}clientPhone`,
+              name: 'clientPhone',
+              className: 'form-control',
+              value: data.clientPhone || '',
+              onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange
+            })
+          )
+        )
+      )
+    );
+  }
   
   // Render loading state
   if (isLoading) {
@@ -435,6 +782,117 @@ function Invoices({ user }) {
     
     // Error message
     error && React.createElement('div', { className: 'alert alert-danger' }, error),
+
+    React.createElement('div', { className: 'card mb-4' },
+      React.createElement('div', { className: 'card-header' },
+        React.createElement('h2', null, 'Monthly Invoice Generator')
+      ),
+      React.createElement('div', { className: 'card-body' },
+        React.createElement('form', { onSubmit: handleGenerateInvoice },
+          React.createElement('div', { className: 'row' },
+            React.createElement('div', { className: 'col-md-4 form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: 'generatorClientId' }, 'Client'),
+              React.createElement('select', {
+                id: 'generatorClientId',
+                name: 'clientId',
+                className: 'form-control',
+                value: generatorData.clientId,
+                onChange: handleGeneratorChange,
+                required: true
+              },
+                React.createElement('option', { value: '' }, 'Select a client'),
+                clients.map(client => React.createElement('option', { key: client.id, value: client.id }, client.name))
+              )
+            ),
+            React.createElement('div', { className: 'col-md-4 form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: 'generatorNumber' }, 'Invoice Number'),
+              React.createElement('input', {
+                id: 'generatorNumber',
+                name: 'number',
+                className: 'form-control',
+                value: generatorData.number,
+                onChange: handleGeneratorChange,
+                required: true
+              })
+            ),
+            React.createElement('div', { className: 'col-md-2 form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: 'generatorStartDate' }, 'Start'),
+              React.createElement('input', {
+                id: 'generatorStartDate',
+                name: 'startDate',
+                type: 'date',
+                className: 'form-control',
+                value: generatorData.startDate,
+                onChange: handleGeneratorChange,
+                required: true
+              })
+            ),
+            React.createElement('div', { className: 'col-md-2 form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: 'generatorEndDate' }, 'End'),
+              React.createElement('input', {
+                id: 'generatorEndDate',
+                name: 'endDate',
+                type: 'date',
+                className: 'form-control',
+                value: generatorData.endDate,
+                onChange: handleGeneratorChange,
+                required: true
+              })
+            )
+          ),
+          React.createElement('div', { className: 'row' },
+            React.createElement('div', { className: 'col-md-3 form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: 'generatorIssueDate' }, 'Issue Date'),
+              React.createElement('input', {
+                id: 'generatorIssueDate',
+                name: 'issueDate',
+                type: 'date',
+                className: 'form-control',
+                value: generatorData.issueDate,
+                onChange: handleGeneratorChange
+              })
+            ),
+            React.createElement('div', { className: 'col-md-3 form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: 'generatorDueDate' }, 'Due Date'),
+              React.createElement('input', {
+                id: 'generatorDueDate',
+                name: 'dueDate',
+                type: 'date',
+                className: 'form-control',
+                value: generatorData.dueDate,
+                onChange: handleGeneratorChange
+              })
+            ),
+            React.createElement('div', { className: 'col-md-3 form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: 'generatorSubject' }, 'Subject'),
+              React.createElement('input', {
+                id: 'generatorSubject',
+                name: 'subject',
+                className: 'form-control',
+                value: generatorData.subject,
+                onChange: handleGeneratorChange
+              })
+            ),
+            React.createElement('div', { className: 'col-md-3 form-group' },
+              React.createElement('label', { className: 'form-label', htmlFor: 'generatorNotes' }, 'Notes'),
+              React.createElement('input', {
+                id: 'generatorNotes',
+                name: 'notes',
+                className: 'form-control',
+                value: generatorData.notes,
+                onChange: handleGeneratorChange
+              })
+            )
+          ),
+          renderAddressFields(generatorData, 'generator'),
+          React.createElement('button', {
+            type: 'submit',
+            className: 'btn btn-primary mt-2',
+            disabled: isGenerating
+          }, isGenerating ? 'Generating...' : 'Generate Draft Invoice')
+        )
+      )
+    ),
     
     // Invoice form
     React.createElement('div', { className: 'card mb-4' },
@@ -518,9 +976,73 @@ function Invoices({ user }) {
             },
               React.createElement('option', { value: 'draft' }, 'Draft'),
               React.createElement('option', { value: 'sent' }, 'Sent'),
+              React.createElement('option', { value: 'open' }, 'Open'),
               React.createElement('option', { value: 'paid' }, 'Paid')
             )
           ),
+
+          React.createElement('div', { className: 'row' },
+            React.createElement('div', { className: 'col-md-3 form-group' },
+              React.createElement('label', { htmlFor: 'amount', className: 'form-label' }, 'Subtotal'),
+              React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                id: 'amount',
+                name: 'amount',
+                className: 'form-control',
+                value: formData.amount,
+                onChange: handleInputChange
+              })
+            ),
+            React.createElement('div', { className: 'col-md-3 form-group' },
+              React.createElement('label', { htmlFor: 'tax', className: 'form-label' }, 'Tax'),
+              React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                id: 'tax',
+                name: 'tax',
+                className: 'form-control',
+                value: formData.tax,
+                onChange: handleInputChange
+              })
+            ),
+            React.createElement('div', { className: 'col-md-3 form-group' },
+              React.createElement('label', { htmlFor: 'dueAmount', className: 'form-label' }, 'Due Amount'),
+              React.createElement('input', {
+                type: 'number',
+                step: '0.01',
+                id: 'dueAmount',
+                name: 'dueAmount',
+                className: 'form-control',
+                value: formData.dueAmount,
+                onChange: handleInputChange
+              })
+            ),
+            React.createElement('div', { className: 'col-md-3 form-group' },
+              React.createElement('label', { htmlFor: 'paidDate', className: 'form-label' }, 'Paid Date'),
+              React.createElement('input', {
+                type: 'date',
+                id: 'paidDate',
+                name: 'paidDate',
+                className: 'form-control',
+                value: formData.paidDate,
+                onChange: handleInputChange
+              })
+            )
+          ),
+
+          React.createElement('div', { className: 'form-group' },
+            React.createElement('label', { htmlFor: 'subject', className: 'form-label' }, 'Subject'),
+            React.createElement('input', {
+              id: 'subject',
+              name: 'subject',
+              className: 'form-control',
+              value: formData.subject,
+              onChange: handleInputChange
+            })
+          ),
+
+          renderAddressFields(formData),
           
           // Notes
           React.createElement('div', { className: 'form-group' },
@@ -626,6 +1148,7 @@ function Invoices({ user }) {
             React.createElement('option', { value: 'all' }, 'All Statuses'),
             React.createElement('option', { value: 'draft' }, 'Draft'),
             React.createElement('option', { value: 'sent' }, 'Sent'),
+            React.createElement('option', { value: 'open' }, 'Open'),
             React.createElement('option', { value: 'paid' }, 'Paid')
           )
         ),
@@ -699,6 +1222,8 @@ function Invoices({ user }) {
                   React.createElement('th', null, 'Issue Date'),
                   React.createElement('th', null, 'Due Date'),
                   React.createElement('th', null, 'Total'),
+                  React.createElement('th', null, 'Due'),
+                  React.createElement('th', null, 'Paid Date'),
                   React.createElement('th', null, 'Status'),
                   React.createElement('th', null, 'Actions')
                 )
@@ -711,6 +1236,8 @@ function Invoices({ user }) {
                     React.createElement('td', null, formatDateForDisplay(invoice.issueDate)),
                     React.createElement('td', null, formatDateForDisplay(invoice.dueDate)),
                     React.createElement('td', null, formatCurrency(invoice.total)),
+                    React.createElement('td', null, formatCurrency(invoice.dueAmount || 0)),
+                    React.createElement('td', null, invoice.paidDate ? formatDateForDisplay(invoice.paidDate) : ''),
                     React.createElement('td', null, 
                       React.createElement('span', { 
                         className: `badge ${getStatusBadgeClass(invoice.status)}`
@@ -721,6 +1248,10 @@ function Invoices({ user }) {
                         className: 'btn btn-sm btn-primary mr-1',
                         onClick: () => handleEdit(invoice)
                       }, 'Edit'),
+                      React.createElement('button', {
+                        className: 'btn btn-sm btn-secondary mr-1',
+                        onClick: () => handleExportPDF(invoice)
+                      }, 'PDF'),
                       React.createElement('button', {
                         className: 'btn btn-sm btn-danger',
                         onClick: () => handleDelete(invoice.id)

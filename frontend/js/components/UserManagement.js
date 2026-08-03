@@ -24,7 +24,7 @@ function UserManagement({ user }) {
   const [showAddForm, setShowAddForm] = React.useState(false);
   
   // API URL
-  const API_URL = 'http://localhost:8080/api';
+  const API_URL = '/api';
   
   // Load users on component mount
   React.useEffect(() => {
