@@ -8,7 +8,9 @@ function Invoices({ user }) {
   const [invoiceTimeEntries, setInvoiceTimeEntries] = React.useState([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isGenerating, setIsGenerating] = React.useState(false);
+  const [editLoadingInvoiceId, setEditLoadingInvoiceId] = React.useState(null);
   const [error, setError] = React.useState('');
+  const invoiceFormRef = React.useRef(null);
   
   // State for form
   const [isEditing, setIsEditing] = React.useState(false);
@@ -430,10 +432,14 @@ function Invoices({ user }) {
   // Handle edit invoice
   const handleEdit = (invoice) => {
     setCurrentInvoice(invoice);
+    setEditLoadingInvoiceId(invoice.id);
     
     // Get time entries for this invoice
     const token = localStorage.getItem('token');
-    if (!token) return;
+    if (!token) {
+      setEditLoadingInvoiceId(null);
+      return;
+    }
     
     fetch(`${API_URL}/invoices/${invoice.id}/time-entries`, {
       headers: {
@@ -476,11 +482,20 @@ function Invoices({ user }) {
       });
       
       setIsEditing(true);
+      setShowTimeEntrySelector(false);
       setError('');
+      setTimeout(() => {
+        if (invoiceFormRef.current) {
+          invoiceFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 0);
     })
     .catch(error => {
       console.error('Error fetching invoice time entries:', error);
       setError('Failed to load invoice details');
+    })
+    .finally(() => {
+      setEditLoadingInvoiceId(null);
     });
   };
 
@@ -916,7 +931,7 @@ function Invoices({ user }) {
     ),
     
     // Invoice form
-    React.createElement('div', { className: 'card mb-4' },
+    React.createElement('div', { className: 'card mb-4', ref: invoiceFormRef },
       React.createElement('div', { className: 'card-header' },
         React.createElement('h2', null, isEditing ? 'Edit Invoice' : 'Create Invoice')
       ),
@@ -1267,8 +1282,9 @@ function Invoices({ user }) {
                     React.createElement('td', null,
                       React.createElement('button', {
                         className: 'btn btn-sm btn-primary mr-1',
+                        disabled: editLoadingInvoiceId === invoice.id,
                         onClick: () => handleEdit(invoice)
-                      }, 'Edit'),
+                      }, editLoadingInvoiceId === invoice.id ? 'Opening...' : 'Edit'),
                       React.createElement('button', {
                         className: 'btn btn-sm btn-secondary mr-1',
                         onClick: () => handleExportPDF(invoice)
