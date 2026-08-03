@@ -5,6 +5,7 @@ function Invoices({ user }) {
   const [invoices, setInvoices] = React.useState([]);
   const [clients, setClients] = React.useState([]);
   const [timeEntries, setTimeEntries] = React.useState([]);
+  const [invoiceTimeEntries, setInvoiceTimeEntries] = React.useState([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -69,6 +70,10 @@ function Invoices({ user }) {
   
   // Format date for input field
   function formatDateForInput(date) {
+    if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(date)) {
+      return date.slice(0, 10);
+    }
+
     const d = new Date(date);
     let month = '' + (d.getMonth() + 1);
     let day = '' + d.getDate();
@@ -232,10 +237,11 @@ function Invoices({ user }) {
   // Calculate invoice total
   const calculateInvoiceTotal = () => {
     let total = 0;
+    const availableEntries = isEditing ? invoiceTimeEntries : timeEntries;
     
     // Add up the cost of selected time entries
     formData.selectedTimeEntries.forEach(entryId => {
-      const entry = timeEntries.find(e => e.id === entryId);
+      const entry = availableEntries.find(e => e.id === entryId);
       if (entry) {
         // Find the project to get the rate
         const project = entry.project;
@@ -442,6 +448,7 @@ function Invoices({ user }) {
     })
     .then(data => {
       const client = invoice.client || {};
+      setInvoiceTimeEntries(data);
 
       // Set form data with invoice details and time entries
       setFormData({
@@ -585,8 +592,9 @@ function Invoices({ user }) {
     });
     setCurrentInvoice(null);
     setIsEditing(false);
-    setShowTimeEntrySelector(false);
-    setError('');
+      setShowTimeEntrySelector(false);
+      setInvoiceTimeEntries([]);
+      setError('');
   };
   
   // Get client name by ID
@@ -721,6 +729,19 @@ function Invoices({ user }) {
       ),
       React.createElement('section', { className: 'invoice-address-panel' },
         React.createElement('h3', null, 'Bill To'),
+        React.createElement('div', { className: 'form-group' },
+          React.createElement('label', { htmlFor: `${namePrefix}clientId`, className: 'form-label' }, 'Bill To Client'),
+          React.createElement('select', {
+            id: `${namePrefix}clientId`,
+            name: 'clientId',
+            className: 'form-control',
+            value: data.clientId || '',
+            onChange: prefix === 'generator' ? handleGeneratorChange : handleInputChange
+          },
+            React.createElement('option', { value: '' }, 'Select a client'),
+            clients.map(client => React.createElement('option', { key: client.id, value: client.id }, client.name))
+          )
+        ),
         React.createElement('div', { className: 'form-group' },
           React.createElement('label', { htmlFor: `${namePrefix}clientName`, className: 'form-label' }, 'Name'),
           React.createElement('input', {
@@ -1074,7 +1095,7 @@ function Invoices({ user }) {
               
               // Time entry selector
               showTimeEntrySelector && React.createElement('div', { className: 'time-entry-selector' },
-                timeEntries.length === 0
+                (isEditing ? invoiceTimeEntries : timeEntries).length === 0
                   ? React.createElement('p', null, 'No unbilled time entries available')
                   : React.createElement('table', { className: 'table table-sm' },
                       React.createElement('thead', null,
@@ -1088,7 +1109,7 @@ function Invoices({ user }) {
                         )
                       ),
                       React.createElement('tbody', null,
-                        timeEntries.map(entry => {
+                        (isEditing ? invoiceTimeEntries : timeEntries).map(entry => {
                           // Calculate amount
                           const project = entry.project;
                           const rate = project ? project.rate : 0;
