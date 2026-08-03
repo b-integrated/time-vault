@@ -111,18 +111,17 @@ function Invoices({ user }) {
   function invoiceClientSlug(client) {
     return (client && client.name ? client.name : '')
       .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 24);
+      .replace(/[^A-Z0-9]+/g, '')
+      .slice(0, 7);
   }
 
   function isGeneratedInvoiceNumber(number) {
-    return !number || /^INV-\d{4}-\d{2}(-[A-Z0-9-]+)?(-\d{4})?$/.test(number);
+    return !number || /^INV-(\d{4}-\d{2}|\d{4})(-[A-Z0-9-]+)?(-\d{4})?$/.test(number);
   }
 
   function buildNextInvoiceNumber(issueDate, clientId, clientList = clients, invoiceList = invoices) {
     const date = issueDate || formatDateForInput(new Date());
-    const yearMonth = date.slice(0, 7);
+    const yearMonth = `${date.slice(2, 4)}${date.slice(5, 7)}`;
     const client = clientList.find(c => c.id === parseInt(clientId));
     const slug = invoiceClientSlug(client);
     const base = `INV-${yearMonth}${slug ? `-${slug}` : ''}`;

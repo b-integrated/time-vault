@@ -543,9 +543,28 @@ func roundCurrency(value float64) float64 {
 }
 
 var invoiceSequenceSuffix = regexp.MustCompile(`-\d{4}$`)
+var generatedInvoiceNumberPattern = regexp.MustCompile(`^INV-(\d{4})-(\d{2})(?:-([A-Z0-9-]+))?-(\d{4})$`)
+var nonInvoiceSlugCharacter = regexp.MustCompile(`[^A-Z0-9]+`)
+
+func compactGeneratedInvoiceNumber(requested string) string {
+	base := strings.ToUpper(strings.TrimSpace(requested))
+	matches := generatedInvoiceNumberPattern.FindStringSubmatch(base)
+	if matches == nil {
+		return strings.TrimSpace(requested)
+	}
+
+	slug := nonInvoiceSlugCharacter.ReplaceAllString(matches[3], "")
+	if len(slug) > 7 {
+		slug = slug[:7]
+	}
+	if slug == "" {
+		return fmt.Sprintf("INV-%s%s-%s", matches[1][2:], matches[2], matches[4])
+	}
+	return fmt.Sprintf("INV-%s%s-%s-%s", matches[1][2:], matches[2], slug, matches[4])
+}
 
 func uniqueInvoiceNumber(db *gorm.DB, requested string, excludeID uint) (string, error) {
-	base := strings.TrimSpace(requested)
+	base := compactGeneratedInvoiceNumber(requested)
 	if base == "" {
 		return "", fmt.Errorf("invoice number is required")
 	}
