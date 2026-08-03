@@ -277,17 +277,32 @@ function Invoices({ user }) {
 
   const lineClientKey = (line) => line.id ? `line-${line.id}` : line.clientKey;
 
+  const invoiceDescriptionFromTimeEntry = (entry) => {
+    const project = entry.project || {};
+    const client = project.client || {};
+    const task = entry.task || {};
+    const context = [client.name, project.name, task.name].filter(Boolean).join(' / ');
+    const description = (entry.description || '').trim();
+    if (!context) return description;
+    if (!description) return context;
+    if (description.startsWith(`${context}\n`) || description.startsWith(`${context} - `)) {
+      return description;
+    }
+    return `${context}\n${description}`;
+  };
+
   const lineFromTimeEntry = (entry, index = 0) => {
     const project = entry.project || {};
+    const task = entry.task || {};
     const hours = roundMoney((entry.duration || 0) / 3600);
-    const rate = parseFloat(project.rate || 0) || 0;
+    const rate = parseFloat(task.rate || project.rate || 0) || 0;
     return {
       clientKey: `time-${entry.id}-${Date.now()}`,
       originalTimeEntryId: entry.originalTimeEntryId || entry.id,
       projectId: entry.projectId || project.id || null,
       serviceDate: formatDateForInput(entry.startTime || entry.serviceDate || new Date()),
       projectName: entry.projectName || project.name || '',
-      description: entry.description || '',
+      description: invoiceDescriptionFromTimeEntry(entry),
       hours: hours.toString(),
       rate: rate.toString(),
       amount: roundMoney(hours * rate).toString(),

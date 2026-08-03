@@ -166,6 +166,7 @@ func GenerateInvoice(w http.ResponseWriter, r *http.Request) {
 	var entries []models.TimeEntry
 	if err := database.DB.
 		Preload("Project").
+		Preload("Project.Client").
 		Preload("Task").
 		Joins("JOIN projects ON projects.id = time_entries.project_id").
 		Where("projects.client_id = ? AND time_entries.billable = ? AND time_entries.invoice_id IS NULL AND time_entries.start_time >= ? AND time_entries.start_time < ?",
@@ -616,7 +617,7 @@ func makeInvoiceLinesFromTimeEntries(invoiceID uint, entries []models.TimeEntry)
 			ProjectID:           &projectID,
 			ServiceDate:         &serviceDate,
 			ProjectName:         entry.Project.Name,
-			Description:         entry.Description,
+			Description:         invoiceLineDescriptionFromTimeEntry(entry),
 			Hours:               hours,
 			Rate:                rate,
 			Amount:              amount,
@@ -638,6 +639,35 @@ func timeEntryRate(entry models.TimeEntry) float64 {
 	return entry.Project.Rate
 }
 
+func invoiceLineDescriptionFromTimeEntry(entry models.TimeEntry) string {
+	context := invoiceLineContextFromTimeEntry(entry)
+	description := strings.TrimSpace(entry.Description)
+	if context == "" {
+		return description
+	}
+	if description == "" {
+		return context
+	}
+	if strings.HasPrefix(description, context+"\n") || strings.HasPrefix(description, context+" - ") {
+		return description
+	}
+	return context + "\n" + description
+}
+
+func invoiceLineContextFromTimeEntry(entry models.TimeEntry) string {
+	parts := []string{}
+	if entry.Project.Client.Name != "" {
+		parts = append(parts, entry.Project.Client.Name)
+	}
+	if entry.Project.Name != "" {
+		parts = append(parts, entry.Project.Name)
+	}
+	if entry.Task != nil && entry.Task.Name != "" {
+		parts = append(parts, entry.Task.Name)
+	}
+	return strings.Join(parts, " / ")
+}
+
 func ensureInvoiceLines(invoiceID uint) error {
 	var lineCount int64
 	if err := database.DB.Model(&models.InvoiceLine{}).Where("invoice_id = ?", invoiceID).Count(&lineCount).Error; err != nil {
@@ -648,7 +678,7 @@ func ensureInvoiceLines(invoiceID uint) error {
 	}
 
 	var entries []models.TimeEntry
-	if err := database.DB.Preload("Project").Preload("Task").Where("invoice_id = ?", invoiceID).Order("start_time asc").Find(&entries).Error; err != nil {
+	if err := database.DB.Preload("Project").Preload("Project.Client").Preload("Task").Where("invoice_id = ?", invoiceID).Order("start_time asc").Find(&entries).Error; err != nil {
 		return err
 	}
 	if len(entries) == 0 {
@@ -717,7 +747,7 @@ func replaceInvoiceLines(tx *gorm.DB, invoiceID uint, lineReqs []InvoiceLineRequ
 			line.LineType = "time"
 			if line.ProjectName == "" || line.ProjectID == nil || line.ServiceDate == nil || line.Rate == 0 {
 				var entry models.TimeEntry
-				if err := tx.Preload("Project").Preload("Task").First(&entry, *line.OriginalTimeEntryID).Error; err != nil {
+				if err := tx.Preload("Project").Preload("Project.Client").Preload("Task").First(&entry, *line.OriginalTimeEntryID).Error; err != nil {
 					return 0, nil, err
 				}
 				if line.ProjectID == nil {
@@ -733,6 +763,9 @@ func replaceInvoiceLines(tx *gorm.DB, invoiceID uint, lineReqs []InvoiceLineRequ
 				}
 				if line.Rate == 0 {
 					line.Rate = timeEntryRate(entry)
+				}
+				if line.Description == "" {
+					line.Description = invoiceLineDescriptionFromTimeEntry(entry)
 				}
 			}
 		}
@@ -895,7 +928,7 @@ func CreateInvoice(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if len(req.TimeEntryIDs) > 0 {
 		var entries []models.TimeEntry
-		if err := tx.Preload("Project").Preload("Task").Where("id IN ?", req.TimeEntryIDs).Order("start_time asc").Find(&entries).Error; err != nil {
+		if err := tx.Preload("Project").Preload("Project.Client").Preload("Task").Where("id IN ?", req.TimeEntryIDs).Order("start_time asc").Find(&entries).Error; err != nil {
 			tx.Rollback()
 			http.Error(w, "Failed to retrieve invoice time entries", http.StatusInternalServerError)
 			return
