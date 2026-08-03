@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -273,6 +274,114 @@ func DownloadInvoicePDF(w http.ResponseWriter, r *http.Request) {
 	if err := pdf.Output(w); err != nil {
 		http.Error(w, "Failed to render PDF", http.StatusInternalServerError)
 	}
+}
+
+// DownloadInvoiceQBOCSV streams a QuickBooks Online-compatible invoice import CSV.
+func DownloadInvoiceQBOCSV(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid invoice ID", http.StatusBadRequest)
+		return
+	}
+
+	var invoice models.Invoice
+	if err := ensureInvoiceLines(uint(id)); err != nil {
+		http.Error(w, "Failed to prepare invoice lines", http.StatusInternalServerError)
+		return
+	}
+
+	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, id).Error; err != nil {
+		http.Error(w, "Invoice not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"invoice-%s-qbo.csv\"", invoice.Number))
+	writer := csv.NewWriter(w)
+	if err := writeInvoiceQBOCSV(writer, invoice); err != nil {
+		http.Error(w, "Failed to render QuickBooks CSV", http.StatusInternalServerError)
+		return
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		http.Error(w, "Failed to render QuickBooks CSV", http.StatusInternalServerError)
+	}
+}
+
+func writeInvoiceQBOCSV(writer *csv.Writer, invoice models.Invoice) error {
+	header := []string{"*InvoiceNo", "*Customer", "*InvoiceDate", "*DueDate", "Terms", "Location", "Memo", "Item(Product/Service)", "ItemDescription", "ItemQuantity", "ItemRate", "*ItemAmount", "Service Date"}
+	if err := writer.Write(header); err != nil {
+		return err
+	}
+
+	customer := defaultInvoiceString(invoice.ClientName, invoice.Client.Name)
+	invoiceDate := formatQBODate(invoice.IssueDate)
+	dueDate := formatQBODate(invoice.DueDate)
+	terms := qboTerms(invoice.IssueDate, invoice.DueDate)
+	memo := strings.TrimSpace(invoice.Subject)
+	if strings.TrimSpace(invoice.Notes) != "" {
+		memo = strings.TrimSpace(strings.TrimSpace(memo) + "\n" + strings.TrimSpace(invoice.Notes))
+	}
+
+	for index, line := range invoice.Lines {
+		row := make([]string, len(header))
+		if index == 0 {
+			row[0] = invoice.Number
+			row[1] = customer
+			row[2] = invoiceDate
+			row[3] = dueDate
+			row[4] = terms
+			row[6] = memo
+		}
+		row[7] = qboItemName(line)
+		row[8] = strings.TrimSpace(line.Description)
+		row[9] = formatQBONumber(line.Hours)
+		row[10] = formatQBONumber(line.Rate)
+		row[11] = formatQBONumber(line.Amount)
+		if line.ServiceDate != nil {
+			row[12] = formatQBODate(*line.ServiceDate)
+		}
+		if err := writer.Write(row); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func qboItemName(line models.InvoiceLine) string {
+	item := strings.TrimSpace(line.ProjectName)
+	if item == "" && line.Project != nil {
+		item = strings.TrimSpace(line.Project.Name)
+	}
+	if item == "" {
+		item = "Services"
+	}
+	return item
+}
+
+func qboTerms(issueDate time.Time, dueDate time.Time) string {
+	if issueDate.IsZero() || dueDate.IsZero() {
+		return ""
+	}
+	days := int(dueDate.Sub(issueDate).Hours() / 24)
+	if days <= 0 {
+		return "Due on receipt"
+	}
+	return fmt.Sprintf("Net %d", days)
+}
+
+func formatQBODate(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.Format("02/01/2006")
+}
+
+func formatQBONumber(value float64) string {
+	formatted := strconv.FormatFloat(roundCurrency(value), 'f', 2, 64)
+	return strings.TrimRight(strings.TrimRight(formatted, "0"), ".")
 }
 
 func buildInvoicePDF(invoice models.Invoice) *gofpdf.Fpdf {

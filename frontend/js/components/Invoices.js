@@ -643,6 +643,38 @@ function Invoices({ user }) {
       setError('Failed to export invoice PDF');
     });
   };
+
+  const handleExportQBOCSV = (invoice) => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    fetch(`${API_URL}/invoices/${invoice.id}/qbo-csv`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('Failed to export QuickBooks CSV');
+      }
+      return response.blob();
+    })
+    .then(blob => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `invoice-${invoice.number}-qbo.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setError('');
+    })
+    .catch(error => {
+      console.error('Error exporting QuickBooks CSV:', error);
+      setError('Failed to export QuickBooks CSV');
+    });
+  };
   
   // Handle delete invoice
   const handleDelete = (invoiceId) => {
@@ -1560,6 +1592,10 @@ function Invoices({ user }) {
                         className: 'btn btn-sm btn-secondary mr-1',
                         onClick: () => handleExportPDF(invoice)
                       }, 'PDF'),
+                      React.createElement('button', {
+                        className: 'btn btn-sm btn-outline-secondary mr-1',
+                        onClick: () => handleExportQBOCSV(invoice)
+                      }, 'QBO CSV'),
                       React.createElement('button', {
                         className: 'btn btn-sm btn-danger',
                         onClick: () => handleDelete(invoice.id)

@@ -107,6 +107,7 @@ func main() {
 	protectedRouter.HandleFunc("/invoices/{id}", handlers.DeleteInvoice).Methods("DELETE")
 	protectedRouter.HandleFunc("/invoices/{id}/time-entries", handlers.GetInvoiceTimeEntries).Methods("GET")
 	protectedRouter.HandleFunc("/invoices/{id}/pdf", handlers.DownloadInvoicePDF).Methods("GET")
+	protectedRouter.HandleFunc("/invoices/{id}/qbo-csv", handlers.DownloadInvoiceQBOCSV).Methods("GET")
 	protectedRouter.HandleFunc("/clients/{clientId}/invoices", handlers.GetClientInvoices).Methods("GET")
 
 	// Report routes
