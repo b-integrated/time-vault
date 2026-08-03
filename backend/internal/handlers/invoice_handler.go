@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -191,9 +192,15 @@ func GenerateInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	invoiceNumber, err := uniqueInvoiceNumber(database.DB, req.Number, 0)
+	if err != nil {
+		http.Error(w, "Failed to prepare invoice number", http.StatusInternalServerError)
+		return
+	}
+
 	invoice := models.Invoice{
 		ClientID:      req.ClientID,
-		Number:        req.Number,
+		Number:        invoiceNumber,
 		IssueDate:     req.IssueDate,
 		DueDate:       req.DueDate,
 		Status:        "draft",
@@ -534,6 +541,38 @@ func roundCurrency(value float64) float64 {
 	return math.Round(value*100) / 100
 }
 
+var invoiceSequenceSuffix = regexp.MustCompile(`-\d{4}$`)
+
+func uniqueInvoiceNumber(db *gorm.DB, requested string, excludeID uint) (string, error) {
+	base := strings.TrimSpace(requested)
+	if base == "" {
+		return "", fmt.Errorf("invoice number is required")
+	}
+
+	sequenceBase := invoiceSequenceSuffix.ReplaceAllString(base, "")
+	for i := 0; i <= 9999; i++ {
+		candidate := base
+		if i > 0 {
+			candidate = fmt.Sprintf("%s-%04d", sequenceBase, i)
+		}
+
+		query := db.Model(&models.Invoice{}).Where("number = ?", candidate)
+		if excludeID != 0 {
+			query = query.Where("id <> ?", excludeID)
+		}
+
+		var count int64
+		if err := query.Count(&count).Error; err != nil {
+			return "", err
+		}
+		if count == 0 {
+			return candidate, nil
+		}
+	}
+
+	return "", fmt.Errorf("could not generate a unique invoice number for %s", base)
+}
+
 func defaultInvoiceString(value string, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return strings.TrimSpace(fallback)
@@ -742,10 +781,16 @@ func CreateInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	invoiceNumber, err := uniqueInvoiceNumber(database.DB, req.Number, 0)
+	if err != nil {
+		http.Error(w, "Failed to prepare invoice number", http.StatusInternalServerError)
+		return
+	}
+
 	// Create invoice
 	invoice := models.Invoice{
 		ClientID:      req.ClientID,
-		Number:        req.Number,
+		Number:        invoiceNumber,
 		IssueDate:     req.IssueDate,
 		DueDate:       req.DueDate,
 		Status:        req.Status,
@@ -762,7 +807,7 @@ func CreateInvoice(w http.ResponseWriter, r *http.Request) {
 		ClientAddress: defaultInvoiceString(req.ClientAddress, client.Address),
 		ClientEmail:   defaultInvoiceString(req.ClientEmail, client.Email),
 		ClientPhone:   defaultInvoiceString(req.ClientPhone, client.Phone),
-		HarvestID:     req.HarvestID,
+		HarvestID:     strings.TrimSpace(req.HarvestID),
 		PaidDate:      req.PaidDate,
 		PaidAt:        req.PaidAt,
 		SentAt:        req.SentAt,
@@ -892,8 +937,14 @@ func UpdateInvoice(w http.ResponseWriter, r *http.Request) {
 		invoice.ClientID = req.ClientID
 	}
 
-	if req.Number != "" {
-		invoice.Number = req.Number
+	if req.Number != "" && req.Number != invoice.Number {
+		number, err := uniqueInvoiceNumber(tx, req.Number, invoice.ID)
+		if err != nil {
+			tx.Rollback()
+			http.Error(w, "Failed to prepare invoice number", http.StatusInternalServerError)
+			return
+		}
+		invoice.Number = number
 	}
 	if !req.IssueDate.IsZero() {
 		invoice.IssueDate = req.IssueDate

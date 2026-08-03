@@ -29,7 +29,7 @@ type Invoice struct {
 	ClientAddress string         `json:"clientAddress"`
 	ClientEmail   string         `json:"clientEmail"`
 	ClientPhone   string         `json:"clientPhone"`
-	HarvestID     string         `json:"harvestId" gorm:"uniqueIndex"`
+	HarvestID     string         `json:"harvestId"`
 	PaidDate      *time.Time     `json:"paidDate"`
 	PaidAt        *time.Time     `json:"paidAt"`
 	SentAt        *time.Time     `json:"sentAt"`

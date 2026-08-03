@@ -38,12 +38,14 @@ function Invoices({ user }) {
     notes: '',
     selectedTimeEntries: []
   });
-  const [generatorData, setGeneratorData] = React.useState({
+  const [generatorData, setGeneratorData] = React.useState(() => {
+    const issueDate = formatDateForInput(new Date());
+    return {
     clientId: '',
-    number: `INV-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+    number: buildNextInvoiceNumber(issueDate, '', [], []),
     startDate: formatDateForInput(new Date(new Date().getFullYear(), new Date().getMonth(), 1)),
     endDate: formatDateForInput(new Date()),
-    issueDate: formatDateForInput(new Date()),
+    issueDate: issueDate,
     dueDate: formatDateForInput(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)),
     subject: '',
     billerClientId: '1',
@@ -56,6 +58,7 @@ function Invoices({ user }) {
     clientEmail: '',
     clientPhone: '',
     notes: ''
+    };
   });
   
   // State for filtering and sorting
@@ -103,6 +106,33 @@ function Invoices({ user }) {
 
   function toAPIDate(dateString) {
     return `${dateString}T00:00:00Z`;
+  }
+
+  function invoiceClientSlug(client) {
+    return (client && client.name ? client.name : '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 24);
+  }
+
+  function isGeneratedInvoiceNumber(number) {
+    return !number || /^INV-\d{4}-\d{2}(-[A-Z0-9-]+)?(-\d{4})?$/.test(number);
+  }
+
+  function buildNextInvoiceNumber(issueDate, clientId, clientList = clients, invoiceList = invoices) {
+    const date = issueDate || formatDateForInput(new Date());
+    const yearMonth = date.slice(0, 7);
+    const client = clientList.find(c => c.id === parseInt(clientId));
+    const slug = invoiceClientSlug(client);
+    const base = `INV-${yearMonth}${slug ? `-${slug}` : ''}`;
+    const escapedBase = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matcher = new RegExp(`^${escapedBase}-(\\d{4})$`);
+    const maxSequence = invoiceList.reduce((max, invoice) => {
+      const match = (invoice.number || '').match(matcher);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
+    }, 0);
+    return `${base}-${String(maxSequence + 1).padStart(4, '0')}`;
   }
   
   // Format currency
@@ -482,6 +512,10 @@ function Invoices({ user }) {
       Object.assign(nextData, applyBillerFields(nextData, client));
     }
 
+    if ((name === 'clientId' || name === 'issueDate') && isGeneratedInvoiceNumber(generatorData.number)) {
+      nextData.number = buildNextInvoiceNumber(nextData.issueDate, nextData.clientId);
+    }
+
     setGeneratorData(nextData);
   };
 
@@ -530,6 +564,12 @@ function Invoices({ user }) {
     .then(data => {
       setInvoices([data, ...invoices]);
       setTimeEntries(timeEntries.filter(entry => entry.invoiceId || (entry.project && entry.project.clientId !== data.clientId)));
+      setGeneratorData(current => ({
+        ...current,
+        number: isGeneratedInvoiceNumber(current.number)
+          ? buildNextInvoiceNumber(current.issueDate, current.clientId, clients, [data, ...invoices])
+          : current.number
+      }));
       setError('');
     })
     .catch(error => {

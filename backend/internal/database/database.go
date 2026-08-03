@@ -65,7 +65,20 @@ func Migrate() error {
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
+	if err := migrateInvoiceIndexes(); err != nil {
+		return err
+	}
 
 	log.Println("Database migration completed")
+	return nil
+}
+
+func migrateInvoiceIndexes() error {
+	if err := DB.Exec("DROP INDEX IF EXISTS idx_invoices_harvest_id").Error; err != nil {
+		return fmt.Errorf("failed to replace invoice harvest id index: %w", err)
+	}
+	if err := DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_harvest_id ON invoices (harvest_id) WHERE harvest_id IS NOT NULL AND harvest_id <> '' AND deleted_at IS NULL").Error; err != nil {
+		return fmt.Errorf("failed to create invoice harvest id index: %w", err)
+	}
 	return nil
 }
