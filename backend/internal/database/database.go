@@ -74,6 +74,12 @@ func Migrate() error {
 }
 
 func migrateInvoiceIndexes() error {
+	if err := DB.Exec("DROP INDEX IF EXISTS idx_invoices_number").Error; err != nil {
+		return fmt.Errorf("failed to replace invoice number index: %w", err)
+	}
+	if err := DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_number ON invoices (number) WHERE deleted_at IS NULL").Error; err != nil {
+		return fmt.Errorf("failed to create invoice number index: %w", err)
+	}
 	if err := DB.Exec("DROP INDEX IF EXISTS idx_invoices_harvest_id").Error; err != nil {
 		return fmt.Errorf("failed to replace invoice harvest id index: %w", err)
 	}

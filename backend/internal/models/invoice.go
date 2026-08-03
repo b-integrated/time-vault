@@ -10,7 +10,7 @@ import (
 type Invoice struct {
 	ID            uint           `json:"id" gorm:"primaryKey"`
 	ClientID      uint           `json:"clientId" gorm:"not null"`
-	Number        string         `json:"number" gorm:"uniqueIndex;not null"`
+	Number        string         `json:"number" gorm:"not null"`
 	IssueDate     time.Time      `json:"issueDate" gorm:"not null"`
 	DueDate       time.Time      `json:"dueDate" gorm:"not null"`
 	Status        string         `json:"status" gorm:"default:draft"`

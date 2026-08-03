@@ -442,8 +442,8 @@ func buildInvoicePDF(invoice models.Invoice) *gofpdf.Fpdf {
 	pdf.MultiCell(0, 5, billTo, "", "", false)
 	pdf.Ln(4)
 
-	widths := []float64{24, 42, 80, 18, 22}
-	headers := []string{"Date", "Project", "Description", "Hours", "Amount"}
+	widths := []float64{22, 34, 66, 16, 20, 28}
+	headers := []string{"Date", "Project", "Description", "Hours", "Rate", "Amount"}
 	drawInvoiceLineHeader(pdf, widths, headers)
 
 	for _, line := range invoice.Lines {
@@ -460,6 +460,7 @@ func buildInvoicePDF(invoice models.Invoice) *gofpdf.Fpdf {
 			projectName,
 			line.Description,
 			fmt.Sprintf("%.2f", line.Hours),
+			fmt.Sprintf("$%.2f", line.Rate),
 			fmt.Sprintf("$%.2f", line.Amount),
 		}
 		drawInvoiceLineRow(pdf, widths, headers, row)
@@ -467,8 +468,8 @@ func buildInvoicePDF(invoice models.Invoice) *gofpdf.Fpdf {
 
 	pdf.Ln(5)
 	pdf.SetFont("Helvetica", "B", 11)
-	pdf.CellFormat(164, 7, "Total", "", 0, "R", false, 0, "")
-	pdf.CellFormat(22, 7, fmt.Sprintf("$%.2f", invoice.Total), "T", 0, "R", false, 0, "")
+	pdf.CellFormat(158, 7, "Total", "", 0, "R", false, 0, "")
+	pdf.CellFormat(28, 7, fmt.Sprintf("$%.2f", invoice.Total), "T", 0, "R", false, 0, "")
 	pdf.Ln(10)
 
 	if strings.TrimSpace(invoice.Notes) != "" {
