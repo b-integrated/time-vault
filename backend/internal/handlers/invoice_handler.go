@@ -380,7 +380,7 @@ func formatQBODate(value time.Time) string {
 	if value.IsZero() {
 		return ""
 	}
-	return value.Format("02/01/2006")
+	return value.Format("1/2/2006")
 }
 
 func formatQBONumber(value float64) string {
