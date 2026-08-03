@@ -319,9 +319,9 @@ func writeInvoiceQBOCSV(writer *csv.Writer, invoice models.Invoice) error {
 	invoiceDate := formatQBODate(invoice.IssueDate)
 	dueDate := formatQBODate(invoice.DueDate)
 	terms := qboTerms(invoice.IssueDate, invoice.DueDate)
-	memo := strings.TrimSpace(invoice.Subject)
+	memo := normalizeQBOText(invoice.Subject)
 	if strings.TrimSpace(invoice.Notes) != "" {
-		memo = strings.TrimSpace(strings.TrimSpace(memo) + "\n" + strings.TrimSpace(invoice.Notes))
+		memo = normalizeQBOText(strings.TrimSpace(memo) + " " + strings.TrimSpace(invoice.Notes))
 	}
 
 	for index, line := range invoice.Lines {
@@ -334,8 +334,8 @@ func writeInvoiceQBOCSV(writer *csv.Writer, invoice models.Invoice) error {
 			row[4] = terms
 			row[6] = memo
 		}
-		row[7] = qboItemName(line)
-		row[8] = strings.TrimSpace(line.Description)
+		row[7] = normalizeQBOText(qboItemName(line))
+		row[8] = normalizeQBOText(line.Description)
 		row[9] = formatQBONumber(line.Hours)
 		row[10] = formatQBONumber(line.Rate)
 		row[11] = formatQBONumber(line.Amount)
@@ -348,6 +348,10 @@ func writeInvoiceQBOCSV(writer *csv.Writer, invoice models.Invoice) error {
 	}
 
 	return nil
+}
+
+func normalizeQBOText(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func qboItemName(line models.InvoiceLine) string {
@@ -438,15 +442,10 @@ func buildInvoicePDF(invoice models.Invoice) *gofpdf.Fpdf {
 	pdf.MultiCell(0, 5, billTo, "", "", false)
 	pdf.Ln(4)
 
-	pdf.SetFont("Helvetica", "B", 9)
-	widths := []float64{24, 50, 72, 18, 22}
+	widths := []float64{24, 42, 80, 18, 22}
 	headers := []string{"Date", "Project", "Description", "Hours", "Amount"}
-	for i, header := range headers {
-		pdf.CellFormat(widths[i], 7, header, "1", 0, "", false, 0, "")
-	}
-	pdf.Ln(-1)
+	drawInvoiceLineHeader(pdf, widths, headers)
 
-	pdf.SetFont("Helvetica", "", 9)
 	for _, line := range invoice.Lines {
 		serviceDate := ""
 		if line.ServiceDate != nil {
@@ -463,10 +462,7 @@ func buildInvoicePDF(invoice models.Invoice) *gofpdf.Fpdf {
 			fmt.Sprintf("%.2f", line.Hours),
 			fmt.Sprintf("$%.2f", line.Amount),
 		}
-		for i, value := range row {
-			pdf.CellFormat(widths[i], 6, truncatePDFCell(value, widths[i]), "1", 0, "", false, 0, "")
-		}
-		pdf.Ln(-1)
+		drawInvoiceLineRow(pdf, widths, headers, row)
 	}
 
 	pdf.Ln(5)
@@ -484,6 +480,50 @@ func buildInvoicePDF(invoice models.Invoice) *gofpdf.Fpdf {
 	}
 
 	return pdf
+}
+
+func drawInvoiceLineHeader(pdf *gofpdf.Fpdf, widths []float64, headers []string) {
+	pdf.SetFont("Helvetica", "B", 9)
+	for i, header := range headers {
+		pdf.CellFormat(widths[i], 7, header, "1", 0, "", false, 0, "")
+	}
+	pdf.Ln(-1)
+	pdf.SetFont("Helvetica", "", 9)
+}
+
+func drawInvoiceLineRow(pdf *gofpdf.Fpdf, widths []float64, headers []string, row []string) {
+	lineHeight := 5.0
+	rowHeight := lineHeight
+	for i, value := range row {
+		lines := pdf.SplitLines([]byte(strings.TrimSpace(value)), widths[i]-2)
+		if len(lines) == 0 {
+			continue
+		}
+		cellHeight := float64(len(lines)) * lineHeight
+		if cellHeight > rowHeight {
+			rowHeight = cellHeight
+		}
+	}
+	rowHeight += 2
+
+	if pdf.GetY()+rowHeight > 252 {
+		pdf.AddPage()
+		drawInvoiceLineHeader(pdf, widths, headers)
+	}
+
+	x := pdf.GetX()
+	y := pdf.GetY()
+	for i, value := range row {
+		pdf.Rect(x, y, widths[i], rowHeight, "")
+		pdf.SetXY(x+1, y+1)
+		align := "L"
+		if i >= 3 {
+			align = "R"
+		}
+		pdf.MultiCell(widths[i]-2, lineHeight, strings.TrimSpace(value), "", align, false)
+		x += widths[i]
+	}
+	pdf.SetXY(16, y+rowHeight)
 }
 
 func truncatePDFCell(value string, width float64) string {
