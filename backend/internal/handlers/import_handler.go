@@ -30,30 +30,31 @@ type HarvestImportResult struct {
 }
 
 type harvestInvoiceInput struct {
-	ID            int64            `json:"id"`
-	Number        string           `json:"number"`
-	Amount        float64          `json:"amount"`
-	DueAmount     float64          `json:"due_amount"`
-	TaxAmount     float64          `json:"tax_amount"`
-	Subject       string           `json:"subject"`
-	Notes         string           `json:"notes"`
-	BillerName    string           `json:"biller_name"`
-	BillerAddress string           `json:"biller_address"`
-	BillerEmail   string           `json:"biller_email"`
-	BillerPhone   string           `json:"biller_phone"`
-	ClientName    string           `json:"client_name"`
-	ClientAddress string           `json:"client_address"`
-	ClientEmail   string           `json:"client_email"`
-	ClientPhone   string           `json:"client_phone"`
-	State         string           `json:"state"`
-	IssueDate     string           `json:"issue_date"`
-	DueDate       string           `json:"due_date"`
-	SentAt        *string          `json:"sent_at"`
-	PaidAt        *string          `json:"paid_at"`
-	ClosedAt      *string          `json:"closed_at"`
-	PaidDate      *string          `json:"paid_date"`
-	Currency      string           `json:"currency"`
-	Client        harvestClientRef `json:"client"`
+	ID            int64                    `json:"id"`
+	Number        string                   `json:"number"`
+	Amount        float64                  `json:"amount"`
+	DueAmount     float64                  `json:"due_amount"`
+	TaxAmount     float64                  `json:"tax_amount"`
+	Subject       string                   `json:"subject"`
+	Notes         string                   `json:"notes"`
+	BillerName    string                   `json:"biller_name"`
+	BillerAddress string                   `json:"biller_address"`
+	BillerEmail   string                   `json:"biller_email"`
+	BillerPhone   string                   `json:"biller_phone"`
+	ClientName    string                   `json:"client_name"`
+	ClientAddress string                   `json:"client_address"`
+	ClientEmail   string                   `json:"client_email"`
+	ClientPhone   string                   `json:"client_phone"`
+	State         string                   `json:"state"`
+	IssueDate     string                   `json:"issue_date"`
+	DueDate       string                   `json:"due_date"`
+	SentAt        *string                  `json:"sent_at"`
+	PaidAt        *string                  `json:"paid_at"`
+	ClosedAt      *string                  `json:"closed_at"`
+	PaidDate      *string                  `json:"paid_date"`
+	Currency      string                   `json:"currency"`
+	Client        harvestClientRef         `json:"client"`
+	LineItems     []harvestInvoiceLineItem `json:"line_items"`
 }
 
 type harvestClientRef struct {
@@ -62,6 +63,22 @@ type harvestClientRef struct {
 	Address string `json:"address"`
 	Email   string `json:"email"`
 	Phone   string `json:"phone"`
+}
+
+type harvestInvoiceLineItem struct {
+	ID          int64             `json:"id"`
+	Kind        string            `json:"kind"`
+	Description string            `json:"description"`
+	Quantity    float64           `json:"quantity"`
+	UnitPrice   float64           `json:"unit_price"`
+	Amount      float64           `json:"amount"`
+	Project     harvestProjectRef `json:"project"`
+}
+
+type harvestProjectRef struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Code string `json:"code"`
 }
 
 // ImportHarvestTime imports a Harvest time report CSV into clients, projects, and time entries.
@@ -467,6 +484,11 @@ func importHarvestInvoiceJSON(reader io.Reader, dryRun bool) HarvestImportResult
 				result.Skipped++
 				continue
 			}
+			if err := upsertHarvestInvoiceLines(existing.ID, invoice.IssueDate, invoice.ClientID, input.LineItems); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("Invoice %s: failed to update invoice lines", input.Number))
+				result.Skipped++
+				continue
+			}
 			result.Updated++
 			continue
 		}
@@ -486,11 +508,63 @@ func importHarvestInvoiceJSON(reader io.Reader, dryRun bool) HarvestImportResult
 			result.Skipped++
 			continue
 		}
+		if err := upsertHarvestInvoiceLines(invoice.ID, invoice.IssueDate, invoice.ClientID, input.LineItems); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Invoice %s: failed to create invoice lines", input.Number))
+			result.Skipped++
+			continue
+		}
 		result.Imported++
 		result.InvoicesUpserted++
 	}
 
 	return result
+}
+
+func upsertHarvestInvoiceLines(invoiceID uint, issueDate time.Time, clientID uint, lineItems []harvestInvoiceLineItem) error {
+	if len(lineItems) == 0 {
+		return nil
+	}
+
+	lines := make([]InvoiceLineRequest, 0, len(lineItems))
+	for index, item := range lineItems {
+		projectName := strings.TrimSpace(item.Project.Name)
+		projectID := findInvoiceLineProjectID(clientID, projectName)
+		lineType := strings.TrimSpace(item.Kind)
+		if lineType == "" {
+			lineType = "service"
+		}
+
+		lines = append(lines, InvoiceLineRequest{
+			ProjectID:   projectID,
+			ServiceDate: &issueDate,
+			ProjectName: projectName,
+			Description: strings.TrimSpace(item.Description),
+			Hours:       item.Quantity,
+			Rate:        item.UnitPrice,
+			Amount:      item.Amount,
+			LineType:    strings.ToLower(lineType),
+			SortOrder:   index,
+		})
+	}
+
+	tx := database.DB.Begin()
+	if _, _, err := replaceInvoiceLines(tx, invoiceID, lines); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit().Error
+}
+
+func findInvoiceLineProjectID(clientID uint, projectName string) *uint {
+	if projectName == "" {
+		return nil
+	}
+
+	var project models.Project
+	if err := database.DB.Where("client_id = ? AND name = ?", clientID, projectName).First(&project).Error; err != nil {
+		return nil
+	}
+	return &project.ID
 }
 
 func parseHarvestTime(record []string, index map[string]int) (time.Time, int, error) {
