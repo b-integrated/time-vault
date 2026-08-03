@@ -85,6 +85,13 @@ func main() {
 	protectedRouter.HandleFunc("/projects/{id}", handlers.DeleteProject).Methods("DELETE")
 	protectedRouter.HandleFunc("/clients/{clientId}/projects", handlers.GetClientProjects).Methods("GET")
 
+	// Task routes
+	protectedRouter.HandleFunc("/tasks", handlers.GetTasks).Methods("GET")
+	protectedRouter.HandleFunc("/tasks", handlers.CreateTask).Methods("POST")
+	protectedRouter.HandleFunc("/tasks/{id}", handlers.UpdateTask).Methods("PUT")
+	protectedRouter.HandleFunc("/tasks/{id}", handlers.DeleteTask).Methods("DELETE")
+	protectedRouter.HandleFunc("/projects/{projectId}/tasks", handlers.GetProjectTasks).Methods("GET")
+
 	// Time entry routes
 	protectedRouter.HandleFunc("/time-entries", handlers.GetTimeEntries).Methods("GET")
 	protectedRouter.HandleFunc("/time-entries", handlers.CreateTimeEntry).Methods("POST")

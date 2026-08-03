@@ -150,7 +150,7 @@ function App() {
           e.preventDefault();
           handleNavigation('dashboard');
         } },
-          React.createElement('span', { className: 'logo-mark' }, 'TV'),
+          React.createElement('img', { className: 'logo-image', src: 'images/time-vault-logo-192.png?v=20260803-1345', alt: '' }),
           React.createElement('span', { className: 'logo-text' }, 'TimeVault')
         ),
         React.createElement('div', { className: 'user-menu' },

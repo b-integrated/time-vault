@@ -116,6 +116,18 @@ func CreateProject(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to create project", http.StatusInternalServerError)
 		return
 	}
+	defaultTask := models.Task{
+		ProjectID:   project.ID,
+		Name:        "General",
+		Description: "Default task",
+		Billable:    true,
+		Rate:        project.Rate,
+		Status:      "active",
+	}
+	if err := database.DB.Create(&defaultTask).Error; err != nil {
+		http.Error(w, "Failed to create default project task", http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)

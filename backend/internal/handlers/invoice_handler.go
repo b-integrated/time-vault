@@ -110,7 +110,7 @@ func GetInvoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, id).Error; err != nil {
+	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.OriginalTimeEntry.Task").Preload("Lines.Project").First(&invoice, id).Error; err != nil {
 		http.Error(w, "Invoice not found", http.StatusNotFound)
 		return
 	}
@@ -134,7 +134,7 @@ func GetInvoiceTimeEntries(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var lines []models.InvoiceLine
-	if err := database.DB.Preload("OriginalTimeEntry.Project").Preload("Project").Where("invoice_id = ?", id).Order("sort_order asc, service_date asc, id asc").Find(&lines).Error; err != nil {
+	if err := database.DB.Preload("OriginalTimeEntry.Project").Preload("OriginalTimeEntry.Task").Preload("Project").Where("invoice_id = ?", id).Order("sort_order asc, service_date asc, id asc").Find(&lines).Error; err != nil {
 		http.Error(w, "Failed to retrieve invoice time entries", http.StatusInternalServerError)
 		return
 	}
@@ -166,6 +166,7 @@ func GenerateInvoice(w http.ResponseWriter, r *http.Request) {
 	var entries []models.TimeEntry
 	if err := database.DB.
 		Preload("Project").
+		Preload("Task").
 		Joins("JOIN projects ON projects.id = time_entries.project_id").
 		Where("projects.client_id = ? AND time_entries.billable = ? AND time_entries.invoice_id IS NULL AND time_entries.start_time >= ? AND time_entries.start_time < ?",
 			req.ClientID, true, startInclusive, endExclusive).
@@ -182,7 +183,7 @@ func GenerateInvoice(w http.ResponseWriter, r *http.Request) {
 	var amount float64
 	var entryIDs []uint
 	for _, entry := range entries {
-		amount += (float64(entry.Duration) / 3600) * entry.Project.Rate
+		amount += (float64(entry.Duration) / 3600) * timeEntryRate(entry)
 		entryIDs = append(entryIDs, entry.ID)
 	}
 	amount = roundCurrency(amount)
@@ -240,7 +241,7 @@ func GenerateInvoice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := tx.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, invoice.ID).Error; err != nil {
+	if err := tx.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.OriginalTimeEntry.Task").Preload("Lines.Project").First(&invoice, invoice.ID).Error; err != nil {
 		tx.Rollback()
 		http.Error(w, "Failed to reload invoice", http.StatusInternalServerError)
 		return
@@ -270,7 +271,7 @@ func DownloadInvoicePDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, id).Error; err != nil {
+	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.OriginalTimeEntry.Task").Preload("Lines.Project").First(&invoice, id).Error; err != nil {
 		http.Error(w, "Invoice not found", http.StatusNotFound)
 		return
 	}
@@ -298,7 +299,7 @@ func DownloadInvoiceQBOCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, id).Error; err != nil {
+	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.OriginalTimeEntry.Task").Preload("Lines.Project").First(&invoice, id).Error; err != nil {
 		http.Error(w, "Invoice not found", http.StatusNotFound)
 		return
 	}
@@ -607,7 +608,7 @@ func makeInvoiceLinesFromTimeEntries(invoiceID uint, entries []models.TimeEntry)
 		projectID := entry.ProjectID
 		serviceDate := entry.StartTime
 		hours := roundHours(float64(entry.Duration) / 3600)
-		rate := entry.Project.Rate
+		rate := timeEntryRate(entry)
 		amount := roundCurrency(hours * rate)
 		lines = append(lines, models.InvoiceLine{
 			InvoiceID:           invoiceID,
@@ -630,6 +631,13 @@ func roundHours(value float64) float64 {
 	return math.Round(value*100) / 100
 }
 
+func timeEntryRate(entry models.TimeEntry) float64 {
+	if entry.Task != nil && entry.Task.Rate > 0 {
+		return entry.Task.Rate
+	}
+	return entry.Project.Rate
+}
+
 func ensureInvoiceLines(invoiceID uint) error {
 	var lineCount int64
 	if err := database.DB.Model(&models.InvoiceLine{}).Where("invoice_id = ?", invoiceID).Count(&lineCount).Error; err != nil {
@@ -640,7 +648,7 @@ func ensureInvoiceLines(invoiceID uint) error {
 	}
 
 	var entries []models.TimeEntry
-	if err := database.DB.Preload("Project").Where("invoice_id = ?", invoiceID).Order("start_time asc").Find(&entries).Error; err != nil {
+	if err := database.DB.Preload("Project").Preload("Task").Where("invoice_id = ?", invoiceID).Order("start_time asc").Find(&entries).Error; err != nil {
 		return err
 	}
 	if len(entries) == 0 {
@@ -709,7 +717,7 @@ func replaceInvoiceLines(tx *gorm.DB, invoiceID uint, lineReqs []InvoiceLineRequ
 			line.LineType = "time"
 			if line.ProjectName == "" || line.ProjectID == nil || line.ServiceDate == nil || line.Rate == 0 {
 				var entry models.TimeEntry
-				if err := tx.Preload("Project").First(&entry, *line.OriginalTimeEntryID).Error; err != nil {
+				if err := tx.Preload("Project").Preload("Task").First(&entry, *line.OriginalTimeEntryID).Error; err != nil {
 					return 0, nil, err
 				}
 				if line.ProjectID == nil {
@@ -724,7 +732,7 @@ func replaceInvoiceLines(tx *gorm.DB, invoiceID uint, lineReqs []InvoiceLineRequ
 					line.ProjectName = entry.Project.Name
 				}
 				if line.Rate == 0 {
-					line.Rate = entry.Project.Rate
+					line.Rate = timeEntryRate(entry)
 				}
 			}
 		}
@@ -887,7 +895,7 @@ func CreateInvoice(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if len(req.TimeEntryIDs) > 0 {
 		var entries []models.TimeEntry
-		if err := tx.Preload("Project").Where("id IN ?", req.TimeEntryIDs).Order("start_time asc").Find(&entries).Error; err != nil {
+		if err := tx.Preload("Project").Preload("Task").Where("id IN ?", req.TimeEntryIDs).Order("start_time asc").Find(&entries).Error; err != nil {
 			tx.Rollback()
 			http.Error(w, "Failed to retrieve invoice time entries", http.StatusInternalServerError)
 			return
@@ -1052,7 +1060,7 @@ func UpdateInvoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.Project").First(&invoice, invoice.ID).Error; err != nil {
+	if err := database.DB.Preload("Client").Preload("Lines.OriginalTimeEntry.Project").Preload("Lines.OriginalTimeEntry.Task").Preload("Lines.Project").First(&invoice, invoice.ID).Error; err != nil {
 		http.Error(w, "Failed to reload invoice", http.StatusInternalServerError)
 		return
 	}

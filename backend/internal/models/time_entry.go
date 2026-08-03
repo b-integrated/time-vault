@@ -11,6 +11,7 @@ type TimeEntry struct {
 	ID          uint           `json:"id" gorm:"primaryKey"`
 	UserID      uint           `json:"userId" gorm:"not null"`
 	ProjectID   uint           `json:"projectId" gorm:"not null"`
+	TaskID      *uint          `json:"taskId" gorm:"index"`
 	Description string         `json:"description"`
 	StartTime   time.Time      `json:"startTime" gorm:"not null"`
 	EndTime     time.Time      `json:"endTime"`
@@ -25,5 +26,6 @@ type TimeEntry struct {
 	// Relationships
 	User    User     `json:"-" gorm:"foreignKey:UserID"`
 	Project Project  `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
+	Task    *Task    `json:"task,omitempty" gorm:"foreignKey:TaskID"`
 	Invoice *Invoice `json:"-" gorm:"foreignKey:InvoiceID"`
 }

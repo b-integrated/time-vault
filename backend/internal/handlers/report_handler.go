@@ -77,6 +77,7 @@ func queryReportTimeEntries(r *http.Request, startDate time.Time, endExclusive t
 	query := database.DB.
 		Preload("Project").
 		Preload("Project.Client").
+		Preload("Task").
 		Where("time_entries.start_time >= ? AND time_entries.start_time < ?", startDate, endExclusive).
 		Order("time_entries.start_time asc")
 
@@ -253,7 +254,7 @@ func buildTimeReportPDF(entries []models.TimeEntry, startDate time.Time, endDate
 		rate := ""
 		amount := "Non-billable"
 		if entry.Billable {
-			rate = fmt.Sprintf("$%.2f", entry.Project.Rate)
+			rate = fmt.Sprintf("$%.2f", timeEntryRate(entry))
 			amount = fmt.Sprintf("$%.2f", roundCurrency(reportEntryAmount(entry)))
 		}
 		row := []string{
@@ -349,7 +350,7 @@ func buildInvoiceReportPDF(invoices []models.Invoice, startDate time.Time, endDa
 }
 
 func reportEntryAmount(entry models.TimeEntry) float64 {
-	return (float64(entry.Duration) / 3600) * entry.Project.Rate
+	return (float64(entry.Duration) / 3600) * timeEntryRate(entry)
 }
 
 func formatReportDuration(seconds int) string {

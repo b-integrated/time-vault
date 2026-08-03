@@ -100,6 +100,14 @@ a {
   font-weight: 800;
 }
 
+.logo-image {
+  display: block;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
 .logo-text {
   min-width: 0;
   overflow: hidden;
@@ -442,6 +450,31 @@ textarea.form-control {
   flex: 1 1 10rem;
 }
 
+.time-entry-grid,
+.edit-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  gap: 0.85rem;
+}
+
+.quick-task-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(88px, 120px) auto auto;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.25rem 0 0.85rem;
+  padding: 0.7rem;
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.quick-task-billable {
+  margin: 0;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .day-selector-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -654,6 +687,13 @@ textarea.form-control {
   line-height: 1.25;
 }
 
+.entry-task {
+  margin-top: 0.2rem;
+  color: var(--muted-text);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
 .entry-description {
   display: -webkit-box;
   margin-top: 0.3rem;
@@ -689,6 +729,46 @@ textarea.form-control {
   align-content: start;
   justify-items: end;
   gap: 0.45rem;
+}
+
+.entry-meta-stack {
+  display: grid;
+  align-content: start;
+  justify-items: end;
+  gap: 0.45rem;
+}
+
+.entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.entry-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.entry-card-editing {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.entry-edit-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.entry-edit-billable {
+  margin: 0;
+  font-weight: 800;
 }
 
 .invoice-address-grid {
@@ -1061,6 +1141,11 @@ textarea.form-control {
   .timer-controls .btn,
   .action-buttons .btn {
     flex-basis: 100%;
+  }
+
+  .quick-task-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
   .daily-summary {

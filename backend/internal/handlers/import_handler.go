@@ -194,6 +194,7 @@ func importHarvestCSV(reader io.Reader, userID uint, dryRun bool) HarvestImportR
 	result := HarvestImportResult{DryRun: dryRun, ImportType: "time"}
 	seenClients := map[string]bool{}
 	seenProjects := map[string]bool{}
+	seenTasks := map[string]bool{}
 
 	for {
 		record, err := csvReader.Read()
@@ -209,6 +210,7 @@ func importHarvestCSV(reader io.Reader, userID uint, dryRun bool) HarvestImportR
 		result.RowsRead++
 		clientName := firstValue(record, index, "client", "clientname")
 		projectName := firstValue(record, index, "project", "projectname")
+		taskName := firstValue(record, index, "task", "taskname")
 		description := firstValue(record, index, "notes", "note", "description", "task")
 		harvestID := firstValue(record, index, "harvestid", "harvestentryid", "entryid", "id")
 		if clientName == "" || projectName == "" {
@@ -251,10 +253,26 @@ func importHarvestCSV(reader io.Reader, userID uint, dryRun bool) HarvestImportR
 			result.ProjectsUpserted++
 		}
 
+		if taskName == "" {
+			taskName = "General"
+		}
+		task, createdTask, err := findOrCreateTask(taskName, project.ID, billable, rate, dryRun)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Row %d: %v", result.RowsRead+1, err))
+			result.Skipped++
+			continue
+		}
+		taskKey := normalizeHeader(fmt.Sprintf("%d:%s", project.ID, taskName))
+		if createdTask || !seenTasks[taskKey] {
+			seenTasks[taskKey] = true
+		}
+
 		endTime := startTime.Add(time.Duration(durationSeconds) * time.Second)
+		taskID := task.ID
 		timeEntry := models.TimeEntry{
 			UserID:      userID,
 			ProjectID:   project.ID,
+			TaskID:      &taskID,
 			Description: description,
 			StartTime:   startTime,
 			EndTime:     endTime,
@@ -326,6 +344,45 @@ func findOrCreateClient(name string, dryRun bool) (models.Client, bool, error) {
 
 	client = models.Client{Name: name}
 	return client, true, database.DB.Create(&client).Error
+}
+
+func findOrCreateTask(name string, projectID uint, billable bool, rate float64, dryRun bool) (models.Task, bool, error) {
+	var task models.Task
+	err := database.DB.Where("project_id = ? AND LOWER(name) = LOWER(?)", projectID, name).First(&task).Error
+	if err == nil {
+		if !dryRun {
+			changed := false
+			if task.Rate == 0 && rate > 0 {
+				task.Rate = rate
+				changed = true
+			}
+			if task.Status == "" {
+				task.Status = "active"
+				changed = true
+			}
+			if changed {
+				if saveErr := database.DB.Save(&task).Error; saveErr != nil {
+					return task, false, saveErr
+				}
+			}
+		}
+		return task, false, nil
+	}
+	if err != gorm.ErrRecordNotFound {
+		return task, false, err
+	}
+	if dryRun {
+		return models.Task{Name: name, ProjectID: projectID, Billable: billable, Rate: rate, Status: "active"}, true, nil
+	}
+
+	task = models.Task{
+		Name:      name,
+		ProjectID: projectID,
+		Billable:  billable,
+		Rate:      rate,
+		Status:    "active",
+	}
+	return task, true, database.DB.Create(&task).Error
 }
 
 func findOrCreateProject(name string, clientID uint, clientName string, rate float64, dryRun bool) (models.Project, bool, error) {

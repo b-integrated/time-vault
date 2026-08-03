@@ -15,6 +15,7 @@ import (
 type TimeEntryRequest struct {
 	UserID      uint      `json:"userId"`
 	ProjectID   uint      `json:"projectId"`
+	TaskID      uint      `json:"taskId"`
 	Description string    `json:"description"`
 	StartTime   time.Time `json:"startTime"`
 	EndTime     time.Time `json:"endTime"`
@@ -25,7 +26,7 @@ type TimeEntryRequest struct {
 // GetTimeEntries handles retrieving all time entries
 func GetTimeEntries(w http.ResponseWriter, r *http.Request) {
 	var timeEntries []models.TimeEntry
-	query := database.DB.Preload("Project").Preload("Project.Client").Order("start_time desc")
+	query := database.DB.Preload("Project").Preload("Project.Client").Preload("Task").Order("start_time desc")
 	if r.URL.Query().Get("billable") == "true" {
 		query = query.Where("billable = ?", true)
 	}
@@ -50,7 +51,7 @@ func GetTimeEntry(w http.ResponseWriter, r *http.Request) {
 
 	// Find time entry
 	var timeEntry models.TimeEntry
-	if err := database.DB.Preload("Project").Preload("Project.Client").First(&timeEntry, id).Error; err != nil {
+	if err := database.DB.Preload("Project").Preload("Project.Client").Preload("Task").First(&timeEntry, id).Error; err != nil {
 		http.Error(w, "Time entry not found", http.StatusNotFound)
 		return
 	}
@@ -71,7 +72,7 @@ func GetUserTimeEntries(w http.ResponseWriter, r *http.Request) {
 
 	// Find time entries for user
 	var timeEntries []models.TimeEntry
-	if err := database.DB.Preload("Project").Preload("Project.Client").Where("user_id = ?", userID).Order("start_time desc").Find(&timeEntries).Error; err != nil {
+	if err := database.DB.Preload("Project").Preload("Project.Client").Preload("Task").Where("user_id = ?", userID).Order("start_time desc").Find(&timeEntries).Error; err != nil {
 		http.Error(w, "Failed to retrieve time entries", http.StatusInternalServerError)
 		return
 	}
@@ -92,7 +93,7 @@ func GetProjectTimeEntries(w http.ResponseWriter, r *http.Request) {
 
 	// Find time entries for project
 	var timeEntries []models.TimeEntry
-	if err := database.DB.Preload("Project").Preload("Project.Client").Where("project_id = ?", projectID).Order("start_time desc").Find(&timeEntries).Error; err != nil {
+	if err := database.DB.Preload("Project").Preload("Project.Client").Preload("Task").Where("project_id = ?", projectID).Order("start_time desc").Find(&timeEntries).Error; err != nil {
 		http.Error(w, "Failed to retrieve time entries", http.StatusInternalServerError)
 		return
 	}
@@ -115,8 +116,8 @@ func CreateTimeEntry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "User ID is required", http.StatusBadRequest)
 		return
 	}
-	if req.ProjectID == 0 {
-		http.Error(w, "Project ID is required", http.StatusBadRequest)
+	if req.ProjectID == 0 && req.TaskID == 0 {
+		http.Error(w, "Project ID or task ID is required", http.StatusBadRequest)
 		return
 	}
 	if req.StartTime.IsZero() {
@@ -131,21 +132,24 @@ func CreateTimeEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if project exists
-	var project models.Project
-	if err := database.DB.First(&project, req.ProjectID).Error; err != nil {
-		http.Error(w, "Project not found", http.StatusBadRequest)
+	project, task, err := resolveTimeEntryProjectTask(req.ProjectID, req.TaskID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Create time entry
 	timeEntry := models.TimeEntry{
 		UserID:      req.UserID,
-		ProjectID:   req.ProjectID,
+		ProjectID:   project.ID,
 		Description: req.Description,
 		StartTime:   req.StartTime,
 		EndTime:     req.EndTime,
 		Billable:    true,
+	}
+	if task != nil {
+		timeEntry.TaskID = &task.ID
+		timeEntry.Billable = task.Billable
 	}
 	if req.Billable != nil {
 		timeEntry.Billable = *req.Billable
@@ -168,6 +172,7 @@ func CreateTimeEntry(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
+	database.DB.Preload("Project").Preload("Project.Client").Preload("Task").First(&timeEntry, timeEntry.ID)
 	json.NewEncoder(w).Encode(timeEntry)
 }
 
@@ -206,19 +211,24 @@ func UpdateTimeEntry(w http.ResponseWriter, r *http.Request) {
 		timeEntry.UserID = req.UserID
 	}
 
-	if req.ProjectID != 0 && req.ProjectID != timeEntry.ProjectID {
-		// Check if project exists
-		var project models.Project
-		if err := database.DB.First(&project, req.ProjectID).Error; err != nil {
-			http.Error(w, "Project not found", http.StatusBadRequest)
+	if req.ProjectID != 0 || req.TaskID != 0 {
+		project, task, err := resolveTimeEntryProjectTask(req.ProjectID, req.TaskID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		timeEntry.ProjectID = req.ProjectID
+		timeEntry.ProjectID = project.ID
+		if task != nil {
+			timeEntry.TaskID = &task.ID
+			if req.Billable == nil {
+				timeEntry.Billable = task.Billable
+			}
+		} else {
+			timeEntry.TaskID = nil
+		}
 	}
 
-	if req.Description != "" {
-		timeEntry.Description = req.Description
-	}
+	timeEntry.Description = req.Description
 
 	// Update start time and recalculate duration if needed
 	if !req.StartTime.IsZero() && req.StartTime != timeEntry.StartTime {
@@ -250,7 +260,33 @@ func UpdateTimeEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	database.DB.Preload("Project").Preload("Project.Client").Preload("Task").First(&timeEntry, timeEntry.ID)
 	json.NewEncoder(w).Encode(timeEntry)
+}
+
+func resolveTimeEntryProjectTask(projectID uint, taskID uint) (models.Project, *models.Task, error) {
+	var project models.Project
+	var task models.Task
+	if taskID != 0 {
+		if err := database.DB.Preload("Project").First(&task, taskID).Error; err != nil {
+			return project, nil, errTimeEntryBadRequest("Task not found")
+		}
+		if projectID != 0 && projectID != task.ProjectID {
+			return project, nil, errTimeEntryBadRequest("Task does not belong to selected project")
+		}
+		project = task.Project
+		return project, &task, nil
+	}
+	if err := database.DB.First(&project, projectID).Error; err != nil {
+		return project, nil, errTimeEntryBadRequest("Project not found")
+	}
+	return project, nil, nil
+}
+
+type errTimeEntryBadRequest string
+
+func (e errTimeEntryBadRequest) Error() string {
+	return string(e)
 }
 
 // DeleteTimeEntry handles deleting a time entry

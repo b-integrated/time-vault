@@ -56,6 +56,7 @@ func Migrate() error {
 		&models.User{},
 		&models.Client{},
 		&models.Project{},
+		&models.Task{},
 		&models.TimeEntry{},
 		&models.Invoice{},
 		&models.InvoiceLine{},
@@ -68,8 +69,41 @@ func Migrate() error {
 	if err := migrateInvoiceIndexes(); err != nil {
 		return err
 	}
+	if err := migrateProjectTasks(); err != nil {
+		return err
+	}
 
 	log.Println("Database migration completed")
+	return nil
+}
+
+func migrateProjectTasks() error {
+	if err := DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_project_name_active ON tasks (project_id, lower(name)) WHERE deleted_at IS NULL").Error; err != nil {
+		return fmt.Errorf("failed to create task uniqueness index: %w", err)
+	}
+	if err := DB.Exec(`
+		INSERT INTO tasks (project_id, name, description, billable, rate, status, created_at, updated_at)
+		SELECT p.id, 'General', 'Default task for migrated project time entries', true, p.rate, 'active', NOW(), NOW()
+		FROM projects p
+		WHERE p.deleted_at IS NULL
+		  AND NOT EXISTS (
+			SELECT 1 FROM tasks t
+			WHERE t.project_id = p.id AND t.deleted_at IS NULL
+		  )
+	`).Error; err != nil {
+		return fmt.Errorf("failed to seed default project tasks: %w", err)
+	}
+	if err := DB.Exec(`
+		UPDATE time_entries te
+		SET task_id = t.id
+		FROM tasks t
+		WHERE te.task_id IS NULL
+		  AND te.project_id = t.project_id
+		  AND t.name = 'General'
+		  AND te.deleted_at IS NULL
+	`).Error; err != nil {
+		return fmt.Errorf("failed to backfill time entry task ids: %w", err)
+	}
 	return nil
 }
 

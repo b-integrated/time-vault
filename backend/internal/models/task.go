@@ -6,20 +6,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// Project represents a project in the system
-type Project struct {
+// Task represents a billable or non-billable work type within a project.
+type Task struct {
 	ID          uint           `json:"id" gorm:"primaryKey"`
+	ProjectID   uint           `json:"projectId" gorm:"not null;index"`
 	Name        string         `json:"name" gorm:"not null"`
 	Description string         `json:"description"`
-	ClientID    uint           `json:"clientId" gorm:"not null"`
+	Billable    bool           `json:"billable" gorm:"default:true"`
 	Rate        float64        `json:"rate" gorm:"type:decimal(10,2)"`
 	Status      string         `json:"status" gorm:"default:active"`
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 
-	// Relationships
-	Client      Client      `json:"client,omitempty" gorm:"foreignKey:ClientID"`
-	TimeEntries []TimeEntry `json:"-" gorm:"foreignKey:ProjectID"`
-	Tasks       []Task      `json:"tasks,omitempty" gorm:"foreignKey:ProjectID"`
+	Project     Project     `json:"project,omitempty" gorm:"foreignKey:ProjectID"`
+	TimeEntries []TimeEntry `json:"-" gorm:"foreignKey:TaskID"`
 }
