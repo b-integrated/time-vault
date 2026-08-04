@@ -660,6 +660,14 @@ textarea.form-control {
   border-bottom: 1px solid var(--border-color);
 }
 
+.entry-card-running {
+  margin: 0 -0.45rem;
+  padding: 0.9rem;
+  background: #ecfdf5;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+}
+
 .entry-card:first-child {
   padding-top: 0;
 }
@@ -705,6 +713,16 @@ textarea.form-control {
   -webkit-line-clamp: 3;
 }
 
+.entry-running-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+  color: #047857;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
 .entry-meta {
   margin-top: 0.35rem;
   color: var(--muted-text);
@@ -722,6 +740,11 @@ textarea.form-control {
   font-size: 0.84rem;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.entry-duration-running {
+  background: #dcfce7;
+  color: #047857;
 }
 
 .entry-card-actions {

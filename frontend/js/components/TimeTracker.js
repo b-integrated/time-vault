@@ -16,7 +16,8 @@ function TimeTracker({ user }) {
   const [isRunning, setIsRunning] = React.useState(false);
   const [startTime, setStartTime] = React.useState(null);
   const [elapsedTime, setElapsedTime] = React.useState(0);
-  const [timerInterval, setTimerInterval] = React.useState(null);
+  const [activeEntryId, setActiveEntryId] = React.useState(null);
+  const [activeEntryBaseDuration, setActiveEntryBaseDuration] = React.useState(0);
 
   const [clients, setClients] = React.useState([]);
   const [projects, setProjects] = React.useState([]);
@@ -51,27 +52,7 @@ function TimeTracker({ user }) {
       setIsLoading(false);
     });
 
-    const storedStartTime = localStorage.getItem('timerStartTime');
-    if (storedStartTime) {
-      const restoredStart = new Date(storedStartTime);
-      const elapsed = Math.floor((new Date() - restoredStart) / 1000);
-      setStartTime(restoredStart);
-      setElapsedTime(elapsed);
-      setIsRunning(true);
-      setClientId(localStorage.getItem('timerClientId') || '');
-      setProjectId(localStorage.getItem('timerProjectId') || '');
-      setTaskId(localStorage.getItem('timerTaskId') || '');
-      setDescription(localStorage.getItem('timerDescription') || '');
-      setBillable(localStorage.getItem('timerBillable') !== 'false');
-      const interval = setInterval(() => {
-        setElapsedTime(Math.floor((new Date() - restoredStart) / 1000));
-      }, 1000);
-      setTimerInterval(interval);
-    }
-
-    return () => {
-      if (timerInterval) clearInterval(timerInterval);
-    };
+    restoreRunningTimer();
   }, [user.id]);
 
   React.useEffect(() => {
@@ -79,7 +60,6 @@ function TimeTracker({ user }) {
     const interval = setInterval(() => {
       setElapsedTime(Math.floor((new Date() - startTime) / 1000));
     }, 1000);
-    setTimerInterval(interval);
     return () => clearInterval(interval);
   }, [isRunning, startTime]);
 
@@ -94,6 +74,56 @@ function TimeTracker({ user }) {
     }
     if (!response.ok) throw new Error(message);
     return response.json();
+  }
+
+  function restoreRunningTimer() {
+    const storedStartTime = localStorage.getItem('timerStartTime');
+    if (!storedStartTime) return;
+
+    const restoredStart = new Date(storedStartTime);
+    if (Number.isNaN(restoredStart.getTime())) {
+      clearStoredTimer();
+      return;
+    }
+
+    const storedEntryId = localStorage.getItem('timerEntryId');
+    const storedBaseDuration = parseInt(localStorage.getItem('timerEntryBaseDuration') || '0', 10);
+    setStartTime(restoredStart);
+    setElapsedTime(Math.floor((new Date() - restoredStart) / 1000));
+    setIsRunning(true);
+    setActiveEntryId(storedEntryId ? parseInt(storedEntryId, 10) : null);
+    setActiveEntryBaseDuration(Number.isNaN(storedBaseDuration) ? 0 : storedBaseDuration);
+    setClientId(localStorage.getItem('timerClientId') || '');
+    setProjectId(localStorage.getItem('timerProjectId') || '');
+    setTaskId(localStorage.getItem('timerTaskId') || '');
+    setDescription(localStorage.getItem('timerDescription') || '');
+    setBillable(localStorage.getItem('timerBillable') !== 'false');
+  }
+
+  function persistRunningTimer(timer) {
+    localStorage.setItem('timerStartTime', timer.startedAt.toISOString());
+    localStorage.setItem('timerClientId', timer.clientId);
+    localStorage.setItem('timerProjectId', timer.projectId);
+    localStorage.setItem('timerTaskId', timer.taskId);
+    localStorage.setItem('timerDescription', timer.description || '');
+    localStorage.setItem('timerBillable', timer.billable.toString());
+    localStorage.setItem('timerEntryBaseDuration', timer.baseDuration.toString());
+    if (timer.entryId) {
+      localStorage.setItem('timerEntryId', timer.entryId.toString());
+    } else {
+      localStorage.removeItem('timerEntryId');
+    }
+  }
+
+  function clearStoredTimer() {
+    localStorage.removeItem('timerStartTime');
+    localStorage.removeItem('timerClientId');
+    localStorage.removeItem('timerProjectId');
+    localStorage.removeItem('timerTaskId');
+    localStorage.removeItem('timerDescription');
+    localStorage.removeItem('timerBillable');
+    localStorage.removeItem('timerEntryId');
+    localStorage.removeItem('timerEntryBaseDuration');
   }
 
   function sortEntries(entries) {
@@ -204,16 +234,62 @@ function TimeTracker({ user }) {
   function startTimer() {
     if (!validateSelection({ clientId, projectId, taskId })) return;
 
+    beginTimer({
+      entryId: null,
+      sourceClientId: clientId,
+      sourceProjectId: projectId,
+      sourceTaskId: taskId,
+      sourceDescription: description,
+      sourceBillable: billable,
+      baseDuration: 0
+    });
+  }
+
+  function restartEntryTimer(entry) {
+    if (isRunning) {
+      setError('Stop the running timer before starting another one');
+      return;
+    }
+
+    const entryClientId = getEntryClientId(entry);
+    const entryTaskId = entry.taskId || (entry.task && entry.task.id) || '';
+    if (!validateSelection({ clientId: entryClientId, projectId: entry.projectId, taskId: entryTaskId })) return;
+
+    beginTimer({
+      entryId: entry.id,
+      sourceClientId: entryClientId,
+      sourceProjectId: entry.projectId.toString(),
+      sourceTaskId: entryTaskId.toString(),
+      sourceDescription: entry.description || '',
+      sourceBillable: !!entry.billable,
+      baseDuration: entry.duration || 0
+    });
+    setSelectedDate(formatDateForInput(new Date(entry.startTime)));
+    if (editingEntryId === entry.id) cancelEditing();
+  }
+
+  function beginTimer(timer) {
     const now = new Date();
     setStartTime(now);
     setElapsedTime(0);
     setIsRunning(true);
-    localStorage.setItem('timerStartTime', now.toISOString());
-    localStorage.setItem('timerClientId', clientId);
-    localStorage.setItem('timerProjectId', projectId);
-    localStorage.setItem('timerTaskId', taskId);
-    localStorage.setItem('timerDescription', description);
-    localStorage.setItem('timerBillable', billable.toString());
+    setActiveEntryId(timer.entryId);
+    setActiveEntryBaseDuration(timer.baseDuration);
+    setClientId(timer.sourceClientId);
+    setProjectId(timer.sourceProjectId);
+    setTaskId(timer.sourceTaskId);
+    setDescription(timer.sourceDescription);
+    setBillable(timer.sourceBillable);
+    persistRunningTimer({
+      startedAt: now,
+      entryId: timer.entryId,
+      clientId: timer.sourceClientId,
+      projectId: timer.sourceProjectId,
+      taskId: timer.sourceTaskId,
+      description: timer.sourceDescription,
+      billable: timer.sourceBillable,
+      baseDuration: timer.baseDuration
+    });
     setError('');
   }
 
@@ -221,6 +297,11 @@ function TimeTracker({ user }) {
     if (!startTime) return;
     const now = new Date();
     const duration = Math.max(0, Math.floor((now - startTime) / 1000));
+    if (activeEntryId) {
+      updateRunningEntry(duration);
+      return;
+    }
+
     saveTimeEntry({
       userId: user.id,
       projectId: parseInt(projectId),
@@ -230,6 +311,51 @@ function TimeTracker({ user }) {
       endTime: now.toISOString(),
       duration,
       billable
+    });
+  }
+
+  function updateRunningEntry(timerDuration) {
+    const entry = timeEntries.find(item => item.id === activeEntryId);
+    if (!entry) {
+      setError('Could not find the running time entry');
+      return;
+    }
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    const totalDuration = activeEntryBaseDuration + timerDuration;
+    const start = new Date(entry.startTime);
+    const end = new Date(start.getTime() + totalDuration * 1000);
+    const entryTaskId = entry.taskId || (entry.task && entry.task.id);
+    const payload = {
+      userId: entry.userId,
+      projectId: entry.projectId,
+      taskId: entryTaskId,
+      description: entry.description || '',
+      startTime: start.toISOString(),
+      endTime: end.toISOString(),
+      duration: totalDuration,
+      billable: entry.billable
+    };
+
+    fetch(`${API_URL}/time-entries/${entry.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    })
+    .then(response => handleApiResponse(response, 'Failed to update running time entry'))
+    .then(data => {
+      setTimeEntries(sortEntries(timeEntries.map(item => item.id === data.id ? data : item)));
+      setSelectedDate(formatDateForInput(new Date(data.startTime)));
+      resetTimerState();
+    })
+    .catch(err => {
+      if (err.message === 'Unauthorized') return;
+      console.error('Error updating running time entry:', err);
+      setError('Failed to update running time entry');
     });
   }
 
@@ -254,15 +380,7 @@ function TimeTracker({ user }) {
       setTaskId('');
       setDescription('');
       setBillable(true);
-      setStartTime(null);
-      setElapsedTime(0);
-      setIsRunning(false);
-      localStorage.removeItem('timerStartTime');
-      localStorage.removeItem('timerClientId');
-      localStorage.removeItem('timerProjectId');
-      localStorage.removeItem('timerTaskId');
-      localStorage.removeItem('timerDescription');
-      localStorage.removeItem('timerBillable');
+      resetTimerState();
     })
     .catch(err => {
       if (err.message === 'Unauthorized') return;
@@ -375,6 +493,15 @@ function TimeTracker({ user }) {
     });
   }
 
+  function resetTimerState() {
+    setStartTime(null);
+    setElapsedTime(0);
+    setIsRunning(false);
+    setActiveEntryId(null);
+    setActiveEntryBaseDuration(0);
+    clearStoredTimer();
+  }
+
   function shiftSelectedDate(days) {
     const nextDate = new Date(`${selectedDate}T12:00:00`);
     nextDate.setDate(nextDate.getDate() + days);
@@ -414,6 +541,15 @@ function TimeTracker({ user }) {
     return (Math.round((seconds / 3600) * 100) / 100).toFixed(2);
   }
 
+  function isEntryRunning(entry) {
+    return isRunning && activeEntryId === entry.id;
+  }
+
+  function getRunningTotalDuration(entry) {
+    if (!isEntryRunning(entry)) return entry.duration;
+    return activeEntryBaseDuration + elapsedTime;
+  }
+
   if (isLoading) {
     return React.createElement('div', { className: 'loading-container' },
       React.createElement('div', { className: 'loading-spinner' }),
@@ -422,8 +558,8 @@ function TimeTracker({ user }) {
   }
 
   const selectedEntries = timeEntries.filter(entry => formatDateForInput(new Date(entry.startTime)) === selectedDate);
-  const selectedDuration = selectedEntries.reduce((total, entry) => total + entry.duration, 0);
-  const selectedBillableDuration = selectedEntries.filter(entry => entry.billable).reduce((total, entry) => total + entry.duration, 0);
+  const selectedDuration = selectedEntries.reduce((total, entry) => total + getRunningTotalDuration(entry), 0);
+  const selectedBillableDuration = selectedEntries.filter(entry => entry.billable).reduce((total, entry) => total + getRunningTotalDuration(entry), 0);
 
   function renderClientSelect(value, onChange, disabled, id) {
     return React.createElement('select', {
@@ -597,20 +733,28 @@ function TimeTracker({ user }) {
   function renderReadEntry(entry) {
     const entryClientId = getEntryClientId(entry);
     const entryTaskId = entry.taskId || (entry.task && entry.task.id);
-    return React.createElement('article', { className: 'entry-card', key: entry.id },
+    const entryRunning = isEntryRunning(entry);
+    return React.createElement('article', { className: `entry-card ${entryRunning ? 'entry-card-running' : ''}`, key: entry.id },
       React.createElement('div', { className: 'entry-card-main' },
         React.createElement('div', { className: 'entry-project' },
           `${getClientName(entryClientId)} / ${entry.project ? entry.project.name : getProjectName(entry.projectId)}`
         ),
         React.createElement('div', { className: 'entry-task' }, entry.task ? entry.task.name : getTaskName(entryTaskId)),
-        React.createElement('div', { className: 'entry-description' }, entry.description || 'No description')
+        React.createElement('div', { className: 'entry-description' }, entry.description || 'No description'),
+        entryRunning && React.createElement('div', { className: 'entry-running-label' },
+          React.createElement('i', { className: 'bi bi-stopwatch' }),
+          React.createElement('span', null, 'Timer running')
+        )
       ),
       React.createElement('div', { className: 'entry-meta-stack' },
-        React.createElement('div', { className: 'entry-duration' }, formatDuration(entry.duration)),
+        React.createElement('div', { className: `entry-duration ${entryRunning ? 'entry-duration-running' : ''}` }, formatDuration(getRunningTotalDuration(entry))),
         React.createElement('div', { className: `entry-billable ${entry.billable ? 'is-billable' : 'is-nonbillable'}` }, entry.billable ? 'Billable' : 'No bill'),
         React.createElement('div', { className: 'entry-actions' },
-          React.createElement('button', { type: 'button', className: 'btn btn-secondary btn-sm', onClick: () => startEditing(entry) }, React.createElement('i', { className: 'bi bi-pencil' }), React.createElement('span', null, 'Edit')),
-          React.createElement('button', { type: 'button', className: 'btn btn-danger btn-sm', onClick: () => deleteEntry(entry) }, React.createElement('i', { className: 'bi bi-trash' }), React.createElement('span', null, 'Delete'))
+          entryRunning
+            ? React.createElement('button', { type: 'button', className: 'btn btn-danger btn-sm', onClick: stopTimer }, React.createElement('i', { className: 'bi bi-stop-fill' }), React.createElement('span', null, 'Stop'))
+            : React.createElement('button', { type: 'button', className: 'btn btn-primary btn-sm', onClick: () => restartEntryTimer(entry), disabled: isRunning }, React.createElement('i', { className: 'bi bi-play-fill' }), React.createElement('span', null, 'Start')),
+          React.createElement('button', { type: 'button', className: 'btn btn-secondary btn-sm', onClick: () => startEditing(entry), disabled: entryRunning }, React.createElement('i', { className: 'bi bi-pencil' }), React.createElement('span', null, 'Edit')),
+          React.createElement('button', { type: 'button', className: 'btn btn-danger btn-sm', onClick: () => deleteEntry(entry), disabled: entryRunning }, React.createElement('i', { className: 'bi bi-trash' }), React.createElement('span', null, 'Delete'))
         )
       )
     );
