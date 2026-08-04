@@ -36,14 +36,21 @@ function TimeTracker({ user }) {
       fetch(`${API_URL}/clients`, authHeaders(token)).then(response => handleApiResponse(response, 'Failed to fetch clients')),
       fetch(`${API_URL}/projects`, authHeaders(token)).then(response => handleApiResponse(response, 'Failed to fetch projects')),
       fetch(`${API_URL}/tasks`, authHeaders(token)).then(response => handleApiResponse(response, 'Failed to fetch tasks')),
-      fetch(`${API_URL}/users/${user.id}/time-entries`, authHeaders(token)).then(response => handleApiResponse(response, 'Failed to fetch time entries'))
+      fetch(`${API_URL}/users/${user.id}/time-entries`, authHeaders(token)).then(response => handleApiResponse(response, 'Failed to fetch time entries')),
+      fetch(`${API_URL}/users/${user.id}/active-timer`, authHeaders(token)).then(response => handleOptionalApiResponse(response, 'Failed to fetch active timer'))
     ])
-    .then(([clientData, projectData, taskData, entryData]) => {
+    .then(([clientData, projectData, taskData, entryData, activeTimer]) => {
       setClients(clientData);
       setProjects(projectData);
       setTasks(taskData);
       setTimeEntries(sortEntries(entryData));
       setIsLoading(false);
+      if (activeTimer) {
+        applyActiveTimer(activeTimer, entryData);
+        clearStoredTimer();
+      } else {
+        promoteStoredTimer(entryData);
+      }
     })
     .catch(err => {
       if (err.message === 'Unauthorized') return;
@@ -51,8 +58,6 @@ function TimeTracker({ user }) {
       setError('Failed to load data');
       setIsLoading(false);
     });
-
-    restoreRunningTimer();
   }, [user.id]);
 
   React.useEffect(() => {
@@ -76,43 +81,111 @@ function TimeTracker({ user }) {
     return response.json();
   }
 
-  function restoreRunningTimer() {
+  function handleOptionalApiResponse(response, message) {
+    if (response.status === 204) return null;
+    return handleApiResponse(response, message);
+  }
+
+  function getStoredTimer() {
     const storedStartTime = localStorage.getItem('timerStartTime');
-    if (!storedStartTime) return;
+    if (!storedStartTime) return null;
 
     const restoredStart = new Date(storedStartTime);
     if (Number.isNaN(restoredStart.getTime())) {
       clearStoredTimer();
-      return;
+      return null;
     }
 
     const storedEntryId = localStorage.getItem('timerEntryId');
     const storedBaseDuration = parseInt(localStorage.getItem('timerEntryBaseDuration') || '0', 10);
+    return {
+      startedAt: restoredStart,
+      entryId: storedEntryId ? parseInt(storedEntryId, 10) : null,
+      clientId: localStorage.getItem('timerClientId') || '',
+      projectId: localStorage.getItem('timerProjectId') || '',
+      taskId: localStorage.getItem('timerTaskId') || '',
+      description: localStorage.getItem('timerDescription') || '',
+      billable: localStorage.getItem('timerBillable') !== 'false',
+      baseDuration: Number.isNaN(storedBaseDuration) ? 0 : storedBaseDuration
+    };
+  }
+
+  function applyActiveTimer(timer, entryData) {
+    const restoredStart = new Date(timer.startedAt);
+    if (Number.isNaN(restoredStart.getTime())) return;
+    const sourceEntry = timer.timeEntry || entryData.find(entry => entry.id === timer.timeEntryId);
+    const sourceClientId = sourceEntry ? getEntryClientId(sourceEntry) : (timer.project && timer.project.clientId ? timer.project.clientId.toString() : '');
+
     setStartTime(restoredStart);
     setElapsedTime(Math.floor((new Date() - restoredStart) / 1000));
     setIsRunning(true);
-    setActiveEntryId(storedEntryId ? parseInt(storedEntryId, 10) : null);
-    setActiveEntryBaseDuration(Number.isNaN(storedBaseDuration) ? 0 : storedBaseDuration);
-    setClientId(localStorage.getItem('timerClientId') || '');
-    setProjectId(localStorage.getItem('timerProjectId') || '');
-    setTaskId(localStorage.getItem('timerTaskId') || '');
-    setDescription(localStorage.getItem('timerDescription') || '');
-    setBillable(localStorage.getItem('timerBillable') !== 'false');
+    setActiveEntryId(timer.timeEntryId || null);
+    setActiveEntryBaseDuration(timer.baseDuration || 0);
+    setClientId(sourceClientId);
+    setProjectId(timer.projectId ? timer.projectId.toString() : '');
+    setTaskId(timer.taskId ? timer.taskId.toString() : '');
+    setDescription(timer.description || '');
+    setBillable(timer.billable !== false);
+    setSelectedDate(formatDateForInput(new Date(sourceEntry ? sourceEntry.startTime : timer.startedAt)));
+    if (timer.timeEntry && !entryData.some(entry => entry.id === timer.timeEntry.id)) {
+      setTimeEntries(sortEntries([timer.timeEntry, ...entryData]));
+    }
+  }
+
+  function promoteStoredTimer(entryData) {
+    const storedTimer = getStoredTimer();
+    if (!storedTimer || !storedTimer.projectId || !storedTimer.taskId) {
+      clearStoredTimer();
+      return;
+    }
+    persistRunningTimer(storedTimer)
+      .then(timer => {
+        applyActiveTimer(timer, entryData);
+        clearStoredTimer();
+      })
+      .catch(err => {
+        if (err.message === 'Unauthorized') return;
+        console.error('Error restoring timer to server:', err);
+        clearStoredTimer();
+      });
   }
 
   function persistRunningTimer(timer) {
-    localStorage.setItem('timerStartTime', timer.startedAt.toISOString());
-    localStorage.setItem('timerClientId', timer.clientId);
-    localStorage.setItem('timerProjectId', timer.projectId);
-    localStorage.setItem('timerTaskId', timer.taskId);
-    localStorage.setItem('timerDescription', timer.description || '');
-    localStorage.setItem('timerBillable', timer.billable.toString());
-    localStorage.setItem('timerEntryBaseDuration', timer.baseDuration.toString());
-    if (timer.entryId) {
-      localStorage.setItem('timerEntryId', timer.entryId.toString());
-    } else {
-      localStorage.removeItem('timerEntryId');
-    }
+    const token = localStorage.getItem('token');
+    if (!token) return Promise.reject(new Error('Missing token'));
+
+    return fetch(`${API_URL}/users/${user.id}/active-timer`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        timeEntryId: timer.entryId,
+        projectId: parseInt(timer.projectId),
+        taskId: parseInt(timer.taskId),
+        description: timer.description || '',
+        startedAt: timer.startedAt.toISOString(),
+        baseDuration: timer.baseDuration || 0,
+        billable: timer.billable
+      })
+    }).then(response => handleApiResponse(response, 'Failed to start active timer'));
+  }
+
+  function clearServerActiveTimer() {
+    const token = localStorage.getItem('token');
+    if (!token) return Promise.resolve();
+
+    return fetch(`${API_URL}/users/${user.id}/active-timer`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(response => {
+      if (response.status === 401 && window.handleUnauthorized) {
+        window.handleUnauthorized();
+        throw new Error('Unauthorized');
+      }
+      if (!response.ok && response.status !== 204) throw new Error('Failed to clear active timer');
+    });
   }
 
   function clearStoredTimer() {
@@ -270,16 +343,6 @@ function TimeTracker({ user }) {
 
   function beginTimer(timer) {
     const now = new Date();
-    setStartTime(now);
-    setElapsedTime(0);
-    setIsRunning(true);
-    setActiveEntryId(timer.entryId);
-    setActiveEntryBaseDuration(timer.baseDuration);
-    setClientId(timer.sourceClientId);
-    setProjectId(timer.sourceProjectId);
-    setTaskId(timer.sourceTaskId);
-    setDescription(timer.sourceDescription);
-    setBillable(timer.sourceBillable);
     persistRunningTimer({
       startedAt: now,
       entryId: timer.entryId,
@@ -289,8 +352,26 @@ function TimeTracker({ user }) {
       description: timer.sourceDescription,
       billable: timer.sourceBillable,
       baseDuration: timer.baseDuration
+    })
+    .then(activeTimer => {
+      setStartTime(new Date(activeTimer.startedAt));
+      setElapsedTime(0);
+      setIsRunning(true);
+      setActiveEntryId(activeTimer.timeEntryId || null);
+      setActiveEntryBaseDuration(activeTimer.baseDuration || 0);
+      setClientId(timer.sourceClientId);
+      setProjectId(timer.sourceProjectId);
+      setTaskId(timer.sourceTaskId);
+      setDescription(timer.sourceDescription);
+      setBillable(activeTimer.billable !== false);
+      clearStoredTimer();
+      setError('');
+    })
+    .catch(err => {
+      if (err.message === 'Unauthorized') return;
+      console.error('Error starting timer:', err);
+      setError('Failed to start timer');
     });
-    setError('');
   }
 
   function stopTimer() {
@@ -348,9 +429,11 @@ function TimeTracker({ user }) {
     })
     .then(response => handleApiResponse(response, 'Failed to update running time entry'))
     .then(data => {
-      setTimeEntries(sortEntries(timeEntries.map(item => item.id === data.id ? data : item)));
-      setSelectedDate(formatDateForInput(new Date(data.startTime)));
-      resetTimerState();
+      return clearServerActiveTimer().then(() => {
+        setTimeEntries(sortEntries(timeEntries.map(item => item.id === data.id ? data : item)));
+        setSelectedDate(formatDateForInput(new Date(data.startTime)));
+        resetTimerState();
+      });
     })
     .catch(err => {
       if (err.message === 'Unauthorized') return;
@@ -373,14 +456,16 @@ function TimeTracker({ user }) {
     })
     .then(response => handleApiResponse(response, 'Failed to save time entry'))
     .then(data => {
-      setTimeEntries(sortEntries([data, ...timeEntries]));
-      setSelectedDate(formatDateForInput(startTime));
-      setClientId('');
-      setProjectId('');
-      setTaskId('');
-      setDescription('');
-      setBillable(true);
-      resetTimerState();
+      return clearServerActiveTimer().then(() => {
+        setTimeEntries(sortEntries([data, ...timeEntries]));
+        setSelectedDate(formatDateForInput(startTime));
+        setClientId('');
+        setProjectId('');
+        setTaskId('');
+        setDescription('');
+        setBillable(true);
+        resetTimerState();
+      });
     })
     .catch(err => {
       if (err.message === 'Unauthorized') return;
