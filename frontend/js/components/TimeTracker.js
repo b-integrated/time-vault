@@ -8,9 +8,6 @@ function TimeTracker({ user }) {
   const [taskId, setTaskId] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [billable, setBillable] = React.useState(true);
-  const [newTaskName, setNewTaskName] = React.useState('');
-  const [newTaskBillable, setNewTaskBillable] = React.useState(true);
-  const [newTaskRate, setNewTaskRate] = React.useState('');
   const [selectedDate, setSelectedDate] = React.useState(formatDateForInput(new Date()));
 
   const [isRunning, setIsRunning] = React.useState(false);
@@ -255,45 +252,6 @@ function TimeTracker({ user }) {
     setTaskId(value);
     const task = findTask(value);
     if (task) setBillable(task.billable);
-  }
-
-  function createTask() {
-    if (!projectId || !newTaskName.trim()) {
-      setError('Choose a project and enter a task name');
-      return;
-    }
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    const payload = {
-      projectId: parseInt(projectId),
-      name: newTaskName.trim(),
-      billable: newTaskBillable,
-      rate: parseFloat(newTaskRate) || 0,
-      status: 'active'
-    };
-    fetch(`${API_URL}/tasks`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify(payload)
-    })
-    .then(response => handleApiResponse(response, 'Failed to create task'))
-    .then(task => {
-      setTasks([...tasks, task].sort((a, b) => a.name.localeCompare(b.name)));
-      setTaskId(task.id.toString());
-      setBillable(task.billable);
-      setNewTaskName('');
-      setNewTaskRate('');
-      setNewTaskBillable(true);
-      setError('');
-    })
-    .catch(err => {
-      if (err.message === 'Unauthorized') return;
-      console.error('Error creating task:', err);
-      setError('Failed to create task');
-    });
   }
 
   function validateSelection(source) {
@@ -630,9 +588,13 @@ function TimeTracker({ user }) {
     return isRunning && activeEntryId === entry.id;
   }
 
+  function getCurrentTimerDuration() {
+    return activeEntryBaseDuration + elapsedTime;
+  }
+
   function getRunningTotalDuration(entry) {
     if (!isEntryRunning(entry)) return entry.duration;
-    return activeEntryBaseDuration + elapsedTime;
+    return getCurrentTimerDuration();
   }
 
   if (isLoading) {
@@ -691,7 +653,7 @@ function TimeTracker({ user }) {
     React.createElement('h1', null, 'Time Tracker'),
     error && React.createElement('div', { className: 'alert alert-danger' }, error),
 
-    React.createElement('div', { className: 'timer-display' }, formatTime(elapsedTime)),
+    React.createElement('div', { className: 'timer-display' }, formatTime(getCurrentTimerDuration())),
 
     React.createElement('div', { className: 'card mb-4' },
       React.createElement('div', { className: 'card-body' },
@@ -709,42 +671,6 @@ function TimeTracker({ user }) {
               React.createElement('label', { htmlFor: 'task', className: 'form-label' }, 'Task'),
               renderTaskSelect(taskId, projectId, handleTaskChange, isRunning, 'task')
             )
-          ),
-          projectId && React.createElement('div', { className: 'quick-task-row' },
-            React.createElement('input', {
-              className: 'form-control',
-              type: 'text',
-              value: newTaskName,
-              onChange: (e) => setNewTaskName(e.target.value),
-              disabled: isRunning,
-              placeholder: 'New task'
-            }),
-            React.createElement('input', {
-              className: 'form-control quick-task-rate',
-              type: 'number',
-              min: '0',
-              step: '0.01',
-              value: newTaskRate,
-              onChange: (e) => setNewTaskRate(e.target.value),
-              disabled: isRunning,
-              placeholder: 'Rate'
-            }),
-            React.createElement('label', { className: 'form-check quick-task-billable' },
-              React.createElement('input', {
-                className: 'form-check-input',
-                type: 'checkbox',
-                checked: newTaskBillable,
-                onChange: (e) => setNewTaskBillable(e.target.checked),
-                disabled: isRunning
-              }),
-              React.createElement('span', { className: 'form-check-label' }, 'Billable')
-            ),
-            React.createElement('button', {
-              type: 'button',
-              className: 'btn btn-secondary',
-              onClick: createTask,
-              disabled: isRunning
-            }, React.createElement('i', { className: 'bi bi-plus-lg' }), React.createElement('span', null, 'Add Task'))
           ),
           React.createElement('div', { className: 'form-group' },
             React.createElement('label', { htmlFor: 'description', className: 'form-label' }, 'Description'),
