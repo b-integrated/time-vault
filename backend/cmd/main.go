@@ -102,6 +102,7 @@ func main() {
 	protectedRouter.HandleFunc("/users/{userId}/active-timer", handlers.GetUserActiveTimer).Methods("GET")
 	protectedRouter.HandleFunc("/users/{userId}/active-timer", handlers.UpsertUserActiveTimer).Methods("POST")
 	protectedRouter.HandleFunc("/users/{userId}/active-timer", handlers.DeleteUserActiveTimer).Methods("DELETE")
+	protectedRouter.HandleFunc("/users/{userId}/active-timer/stop", handlers.StopUserActiveTimer).Methods("POST")
 	protectedRouter.HandleFunc("/projects/{projectId}/time-entries", handlers.GetProjectTimeEntries).Methods("GET")
 	protectedRouter.HandleFunc("/import/harvest-time/preview", handlers.PreviewHarvestTime).Methods("POST")
 	protectedRouter.HandleFunc("/import/harvest-time", handlers.ImportHarvestTime).Methods("POST")

@@ -187,3 +187,59 @@ func writeActiveTimer(w http.ResponseWriter, timer models.ActiveTimer) {
 		TotalDuration:   timer.BaseDuration + elapsed,
 	})
 }
+
+// StopUserActiveTimer converts the user's in-progress ActiveTimer into a saved
+// TimeEntry (elapsed = baseDuration + time since startedAt) and clears the timer,
+// atomically in one transaction. This is the single source of truth for stopping
+// a timer, shared by the UI and the CLI, so the elapsed-time math can never drift
+// between clients. Returns 204 if no timer is running, 201 with the new entry
+// otherwise.
+func StopUserActiveTimer(w http.ResponseWriter, r *http.Request) {
+	userID, ok := parseActiveTimerUserID(w, r)
+	if !ok {
+		return
+	}
+
+	var timer models.ActiveTimer
+	err := database.DB.Where("user_id = ?", userID).First(&timer).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Failed to retrieve active timer", http.StatusInternalServerError)
+		return
+	}
+
+	now := time.Now()
+	elapsed := int(now.Sub(timer.StartedAt).Seconds())
+	if elapsed < 0 {
+		elapsed = 0
+	}
+
+	entry := models.TimeEntry{
+		UserID:      userID,
+		ProjectID:   timer.ProjectID,
+		TaskID:      timer.TaskID,
+		Description: timer.Description,
+		StartTime:   timer.StartedAt,
+		EndTime:     now,
+		Duration:    timer.BaseDuration + elapsed,
+		Billable:    timer.Billable,
+	}
+
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&entry).Error; err != nil {
+			return err
+		}
+		return tx.Where("user_id = ?", userID).Delete(&models.ActiveTimer{}).Error
+	}); err != nil {
+		http.Error(w, "Failed to stop active timer", http.StatusInternalServerError)
+		return
+	}
+
+	database.DB.Preload("Project").Preload("Task").First(&entry, entry.ID)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(entry)
+}
